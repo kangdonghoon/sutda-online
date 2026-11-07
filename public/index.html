@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>섯다 한 판</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+:root{
+  --felt:#0f3b2e; --felt2:#0b2d23; --felt-hi:#16523f; --ink:#f3ead7; --dim:#a9b8ad; --gold:#e3b54a; --gold2:#f5d27a;
+  --red:#b3261e; --red2:#8d1c16; --cream:#f7f0e1; --line:rgba(243,234,215,.14); --panel:rgba(5,22,17,.55);
+  --win:#ffd36a; --bad:#e2685f;
+}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%}
+html{background:var(--felt2)}
+body{font-family:"Noto Sans KR",system-ui,sans-serif;color:var(--ink);background:
+  radial-gradient(ellipse at 50% 30%,#14503d 0%,var(--felt) 45%,var(--felt2) 100%);background-attachment:fixed;min-height:100%}
+button{font:inherit;color:inherit;cursor:pointer}
+input,select{font:inherit}
+.hidden{display:none!important}
+.title{font-family:"Black Han Sans",sans-serif;letter-spacing:.02em}
+
+/* ── 입장 화면 ── */
+#entry{max-width:520px;margin:0 auto;padding:48px 20px 40px}
+#entry h1{font-size:64px;margin:0;line-height:1;color:var(--gold2);text-shadow:0 3px 0 var(--red2),0 8px 24px rgba(0,0,0,.4)}
+#entry .sub{color:var(--dim);margin:10px 0 28px}
+.field{display:flex;flex-direction:column;gap:6px;margin-bottom:18px}
+.field label{font-size:13px;color:var(--dim)}
+.inp{background:rgba(0,0,0,.3);border:1px solid var(--line);border-radius:10px;padding:12px 14px;color:var(--ink);outline:none}
+.inp:focus{border-color:var(--gold)}
+.btn{border:none;border-radius:10px;padding:12px 16px;font-weight:700;background:rgba(255,255,255,.08);border:1px solid var(--line);transition:transform .08s, background .15s}
+.btn:hover{background:rgba(255,255,255,.14)}
+.btn:active{transform:translateY(1px)}
+.btn:disabled{opacity:.35;cursor:not-allowed}
+.btn.gold{background:linear-gradient(180deg,var(--gold2),var(--gold));color:#3b2706;border-color:transparent}
+.btn.red{background:linear-gradient(180deg,#d13a30,var(--red));border-color:transparent}
+.row{display:flex;gap:10px;flex-wrap:wrap}
+.row>*{flex:1}
+.card-box{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}
+.card-box h3{margin:0 0 10px;font-size:15px;color:var(--gold2)}
+.tables{display:flex;flex-direction:column;gap:8px}
+.tbl-item{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border-radius:10px;background:rgba(255,255,255,.05)}
+.muted{color:var(--dim);font-size:13px}
+.note{font-size:12px;color:var(--dim);line-height:1.6;margin-top:10px}
+
+/* ── 테이블 ── */
+#game{display:grid;grid-template-columns:1fr 300px;grid-template-rows:auto 1fr;min-height:100vh}
+header{grid-column:1/-1;display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--line);background:rgba(0,0,0,.18);flex-wrap:wrap}
+header .logo{font-size:26px;color:var(--gold2)}
+.code{font-family:ui-monospace,Menlo,monospace;background:rgba(0,0,0,.35);padding:4px 10px;border-radius:8px;letter-spacing:.15em;font-weight:700;color:var(--gold2)}
+.chip-s{font-size:12px;padding:3px 8px;border-radius:99px;background:rgba(255,255,255,.08);color:var(--dim)}
+.chip-s.ok{color:#9be3b5}.chip-s.bad{color:var(--bad)}
+header .sp{flex:1}
+.hbtn{padding:6px 12px;border-radius:8px;background:rgba(255,255,255,.07);border:1px solid var(--line);font-size:13px}
+
+#tableArea{padding:18px;display:flex;flex-direction:column;gap:16px;min-width:0}
+#seats{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px}
+.seat{position:relative;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:10px 12px 12px;transition:border-color .2s, box-shadow .2s, opacity .2s}
+.seat.turn{border-color:var(--gold);box-shadow:0 0 0 2px rgba(227,181,74,.35),0 0 24px rgba(227,181,74,.25)}
+.seat.folded{opacity:.45}
+.seat.away{opacity:.55}
+.seat.win{border-color:var(--win);box-shadow:0 0 0 2px var(--win),0 0 30px rgba(255,211,106,.45)}
+.seat .nm{font-weight:700;display:flex;align-items:center;gap:6px;min-width:0}
+.seat .nm span.n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tag{font-size:10px;font-weight:700;padding:1px 6px;border-radius:99px;background:rgba(255,255,255,.12);color:var(--dim);flex:none}
+.tag.sun{background:var(--red);color:#fff}
+.tag.bot{background:#35546b;color:#cfe4f3}
+.tag.host{background:#5b4a1a;color:var(--gold2)}
+.seat .chips{font-size:13px;color:var(--gold2);margin-top:2px}
+.seat .cards{display:flex;gap:6px;margin-top:8px;min-height:72px}
+.seat .st{font-size:12px;margin-top:6px;min-height:18px;color:var(--dim)}
+.seat .st b{color:var(--ink)}
+.seat .hn{font-weight:900;color:var(--gold2)}
+.seat .x{position:absolute;top:6px;right:6px;border:none;background:none;color:var(--dim);font-size:14px;padding:2px 6px}
+.timer{height:3px;background:rgba(255,255,255,.1);border-radius:3px;overflow:hidden;margin-top:6px}
+.timer i{display:block;height:100%;background:var(--gold);transition:width .25s linear}
+
+#center{display:flex;align-items:center;justify-content:center;gap:28px;padding:18px;border-radius:999px;background:radial-gradient(ellipse at center,var(--felt-hi),transparent 70%);min-height:120px;flex-wrap:wrap;text-align:center}
+.pot{font-family:"Black Han Sans";font-size:40px;color:var(--gold2);line-height:1}
+.pot small{display:block;font-family:"Noto Sans KR";font-size:12px;color:var(--dim);margin-bottom:6px;letter-spacing:.1em}
+.banner{font-size:18px;font-weight:900;max-width:420px}
+.banner .big{font-family:"Black Han Sans";font-size:30px;color:var(--win);display:block;margin-bottom:4px}
+
+#me{background:linear-gradient(180deg,rgba(0,0,0,.25),rgba(0,0,0,.45));border:1px solid var(--line);border-radius:18px;padding:16px;display:flex;gap:20px;align-items:center;flex-wrap:wrap}
+#me.turn{border-color:var(--gold);box-shadow:0 0 0 2px rgba(227,181,74,.4)}
+#me .mycards{display:flex;gap:10px;min-height:140px;align-items:center}
+#me .info{flex:1;min-width:200px}
+#me .myname{font-weight:900;font-size:18px}
+#me .myhand{font-family:"Black Han Sans";font-size:28px;color:var(--gold2);margin:4px 0}
+#me .mychips{color:var(--dim);font-size:14px}
+#actions{display:grid;grid-template-columns:repeat(3,minmax(84px,1fr));gap:8px;min-width:280px}
+.act{padding:12px 8px;border-radius:12px;font-weight:900;font-size:16px;border:1px solid var(--line);background:rgba(255,255,255,.08);line-height:1.15}
+.act small{display:block;font-weight:500;font-size:11px;color:var(--dim);margin-top:2px}
+.act.die{background:#3a1d1b;border-color:#6b2b26}
+.act.raise{background:linear-gradient(180deg,#d13a30,var(--red));border-color:transparent}
+.act.raise small{color:#ffd9d4}
+.act.call{background:#1f4a3a}
+.act:disabled{opacity:.25;cursor:not-allowed}
+#hostbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:12px;border-radius:14px;background:rgba(91,74,26,.25);border:1px dashed rgba(227,181,74,.4)}
+#hostbar .lbl{font-size:12px;color:var(--gold2);font-weight:700;margin-right:4px}
+#hostbar select{background:rgba(0,0,0,.35);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px}
+#hostbar label.chk{font-size:13px;display:flex;align-items:center;gap:6px}
+
+aside{border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0;background:rgba(0,0,0,.15)}
+aside h4{margin:0;padding:12px 14px 6px;font-size:12px;color:var(--dim);letter-spacing:.1em}
+#log{flex:1;overflow:auto;padding:0 14px 10px;font-size:13px;line-height:1.7;min-height:140px}
+#log .sys{color:var(--dim)}
+#log .chat b{color:var(--gold2)}
+#chatForm{display:flex;gap:6px;padding:10px;border-top:1px solid var(--line)}
+#chatForm input{flex:1;min-width:0}
+.emotes{display:flex;gap:6px;padding:0 10px 10px;flex-wrap:wrap}
+.emotes button{font-size:12px;padding:4px 8px;border-radius:99px;border:1px solid var(--line);background:rgba(255,255,255,.06)}
+
+/* ── 화투 카드 ── */
+.hw{position:relative;width:46px;height:72px;border-radius:6px;flex:none;box-shadow:0 2px 6px rgba(0,0,0,.45);transition:transform .25s}
+.hw.lg{width:88px;height:136px;border-radius:10px}
+.hw.back{background:
+  radial-gradient(circle at 50% 50%,rgba(255,255,255,.12) 0 18%,transparent 19%),
+  repeating-linear-gradient(45deg,rgba(0,0,0,.12) 0 4px,transparent 4px 8px),
+  linear-gradient(160deg,#c9372d,var(--red2));border:2px solid #f0d9b5}
+.hw.face{background:var(--cream);border:2px solid var(--red);color:#2a1a10;display:flex;flex-direction:column;align-items:center;justify-content:space-between;padding:3px 2px;overflow:hidden}
+.hw.face .m{font-family:"Black Han Sans";font-size:13px;line-height:1;color:var(--red)}
+.hw.face .e{font-size:22px;line-height:1}
+.hw.face .t{font-size:8px;font-weight:700;color:#6b5240;line-height:1}
+.hw.lg.face{padding:8px 4px}
+.hw.lg.face .m{font-size:26px}
+.hw.lg.face .e{font-size:46px}
+.hw.lg.face .t{font-size:13px}
+.hw .gw{position:absolute;top:3px;right:3px;width:14px;height:14px;border-radius:50%;background:var(--red);color:#fff;font-size:9px;font-weight:900;display:flex;align-items:center;justify-content:center}
+.hw.lg .gw{width:26px;height:26px;font-size:15px;top:6px;right:6px}
+.hw .yl{position:absolute;top:3px;left:3px;font-size:8px;font-weight:900;color:#1f5c3f}
+.hw.lg .yl{font-size:12px;top:7px;left:7px}
+.hw.face.m1{background:linear-gradient(180deg,#f7f0e1 55%,#e9d9bd)}
+.deal-in{animation:dealIn .35s ease-out}
+@keyframes dealIn{from{transform:translateY(-30px) rotate(-8deg);opacity:0}to{transform:none;opacity:1}}
+
+/* 모달 */
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:50;padding:20px}
+.modal .box{background:#0d3328;border:1px solid var(--line);border-radius:16px;max-width:560px;width:100%;max-height:85vh;overflow:auto;padding:20px}
+.modal h2{margin:0 0 12px;color:var(--gold2)}
+.rank-t{width:100%;border-collapse:collapse;font-size:14px}
+.rank-t td{padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+.rank-t td:first-child{font-weight:900;color:var(--gold2);white-space:nowrap}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#081f18;border:1px solid var(--gold);padding:10px 16px;border-radius:10px;z-index:60;font-size:14px}
+
+@media (max-width:860px){
+  #game{grid-template-columns:1fr}
+  aside{border-left:none;border-top:1px solid var(--line);max-height:320px}
+  #seats{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
+  #actions{min-width:0;width:100%}
+  .pot{font-size:32px}
+}
+</style>
+</head>
+<body>
+
+<!-- 입장 -->
+<section id="entry">
+  <h1 class="title">섯다</h1>
+  <div class="sub">친구들과 같이 하는 2장 섯다. 칩은 가짜예요.</div>
+  <div id="inviteBox" class="card-box hidden"></div>
+
+  <div class="field">
+    <label for="nick">닉네임</label>
+    <input id="nick" class="inp" maxlength="10" placeholder="예: 타짜고니">
+  </div>
+
+  <div id="resumeBox" class="card-box hidden"></div>
+
+  <div class="card-box">
+    <h3>새 방 만들기</h3>
+    <div class="row"><button id="btnCreate" class="btn gold">방 만들기</button><button id="btnSolo" class="btn">봇이랑 연습</button></div>
+    <div class="note" id="netNote">패는 서버가 섞고 나눠요. 각자 자기 패만 받아요. 방을 만들면 초대 링크가 생겨요.</div>
+  </div>
+
+  <div class="card-box">
+    <h3>방 들어가기</h3>
+    <div class="row">
+      <input id="joinCode" class="inp" maxlength="4" placeholder="방 코드 4자리" style="text-transform:lowercase">
+      <button id="btnJoin" class="btn" style="flex:0 0 100px">입장</button>
+    </div>
+    <div style="margin-top:12px" class="tables" id="tables"><div class="muted">열린 방을 찾는 중…</div></div>
+  </div>
+</section>
+
+<!-- 게임 -->
+<section id="game" class="hidden">
+  <header>
+    <span class="logo title">섯다</span>
+    <span class="muted">방</span><span class="code" id="hCode">----</span>
+    <button class="hbtn" id="btnCopy">초대 링크 복사</button>
+    <span class="chip-s" id="hNet">연결 중</span>
+        <span class="sp"></span>
+    <button class="hbtn" id="btnRanks">족보</button>
+    <button class="hbtn" id="btnRebuy">칩 충전</button>
+    <button class="hbtn" id="btnLeave">나가기</button>
+  </header>
+  <div id="tableArea">
+    <div id="hostbar" class="hidden"></div>
+    <div id="seats"></div>
+    <div id="center"></div>
+    <div id="me"></div>
+  </div>
+  <aside>
+    <h4>기록 · 채팅</h4>
+    <div id="log"></div>
+    <div class="emotes" id="emotes"></div>
+    <form id="chatForm"><input id="chatIn" class="inp" maxlength="80" placeholder="채팅" autocomplete="off"><button class="btn" style="padding:10px 14px">전송</button></form>
+  </aside>
+</section>
+
+<div id="modal" class="modal hidden"><div class="box" id="modalBox"></div></div>
+
+<script src="core.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
