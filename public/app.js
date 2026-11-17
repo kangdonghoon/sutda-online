@@ -164,7 +164,7 @@ async function joinTable(c){
   const r = await api({ t: 'join' });
   if (!r.ok) { code = null; return; }
   try { history.replaceState(null, '', '#' + code); } catch(e){ location.hash = code; }
-  inGame = true; PS = null; chatLines = []; resetFx();
+  inGame = true; PS = null; chatLines = []; resetFx(); unread = 0; applyChat();
   $('#entry').classList.add('hidden'); $('#game').classList.remove('hidden');
   $('#hCode').textContent = code.toUpperCase();
   if (!r.seated) toast('자리가 꽉 차서 관전으로 들어왔어요');
@@ -180,7 +180,7 @@ function openStream(){
     try { PS = JSON.parse(e.data); psAt = Date.now(); } catch(err){ return; }
     netState(true); render();
   });
-  es.addEventListener('ch', e => { try { const d = JSON.parse(e.data); chatLines.push({ nm: d.nm, x: d.x }); if (chatLines.length > 60) chatLines.shift(); renderLog(); } catch(err){} });
+  es.addEventListener('ch', e => { try { const d = JSON.parse(e.data); chatLines.push({ nm: d.nm, x: d.x }); if (chatLines.length > 60) chatLines.shift(); renderLog(); if (!(user && d.nm === user.nick)) chatArrived(d.nm, d.x); } catch(err){} });
   es.addEventListener('kick', () => { toast('방에서 내보내졌어요'); leaveGame(true); });
   es.addEventListener('chip', e => {
     let d; try { d = JSON.parse(e.data); } catch(err){ return; }
@@ -216,9 +216,77 @@ $('#btnCopy').onclick = async () => {
 };
 $('#btnRebuy').onclick = () => (PS && PS.practice ? api({ t: 'practiceRefill' }) : openChipModal());
 $('#btnRanks').onclick = showRanks;
-const soundBtn = () => { $('#btnSound').textContent = FX.muted() ? '🔇' : '🔊'; };
-$('#btnSound').onclick = () => { FX.setMuted(!FX.muted()); soundBtn(); };
+// 소리: 효과음+음성 → 효과음만 → 끔
+const soundMode = () => FX.muted() ? 'off' : (FX.voiceOn() ? 'all' : 'fx');
+const soundBtn = () => {
+  const m = soundMode(), b = $('#btnSound');
+  b.textContent = m === 'off' ? '🔇' : (m === 'all' ? '🔊' : '🔉');
+  b.title = m === 'off' ? '소리 꺼짐' : (m === 'all' ? '효과음 + 음성' : '효과음만');
+};
+$('#btnSound').onclick = () => {
+  const m = soundMode();
+  if (!FX.voiceSupported()) { FX.setMuted(m !== 'off'); }
+  else if (m === 'all') { FX.setVoice(false); }
+  else if (m === 'fx') { FX.setMuted(true); }
+  else { FX.setMuted(false); FX.setVoice(true); }
+  soundBtn(); toast($('#btnSound').title);
+  if (soundMode() === 'all') FX.say('따당!', 1.05);
+};
 soundBtn();
+
+// 전체 화면 (안드로이드는 가로 고정까지)
+const fsEl = document.documentElement;
+const canFull = !!(fsEl.requestFullscreen || fsEl.webkitRequestFullscreen);
+const isTouch = matchMedia('(pointer:coarse)').matches;
+async function goFull(){
+  try {
+    if (document.fullscreenElement || document.webkitFullscreenElement) {
+      await (document.exitFullscreen ? document.exitFullscreen() : document.webkitExitFullscreen()); return;
+    }
+    await (fsEl.requestFullscreen ? fsEl.requestFullscreen({ navigationUI: 'hide' }) : fsEl.webkitRequestFullscreen());
+    if (screen.orientation && screen.orientation.lock) await screen.orientation.lock('landscape').catch(() => {});
+  } catch(e){ toast('이 브라우저는 전체 화면을 지원하지 않아요. 휴대폰을 직접 가로로 돌려주세요'); }
+}
+$('#btnFull').classList.toggle('hidden', !(canFull && isTouch));
+$('#btnFull').onclick = goFull;
+$('#btnRotFull').classList.toggle('hidden', !canFull);
+$('#btnRotFull').onclick = goFull;
+
+// 채팅창 열기/닫기
+let chatOff = false, unread = 0, peekT = 0;
+try { chatOff = localStorage.getItem('sutda-chat') === 'off'; } catch(e){}
+function applyChat(){
+  document.body.classList.toggle('chat-off', chatOff);
+  $('#btnChat').classList.toggle('on', !chatOff);
+  if (!chatOff) { unread = 0; $('#chatPeek').classList.add('hidden'); }
+  $('#chatBadge').textContent = unread > 9 ? '9+' : unread;
+  $('#chatBadge').classList.toggle('hidden', !unread);
+}
+$('#btnChat').onclick = () => {
+  chatOff = !chatOff; try { localStorage.setItem('sutda-chat', chatOff ? 'off' : 'on'); } catch(e){}
+  applyChat(); setHdrH(); if (inGame) render();
+  if (!chatOff) { const el = $('#log'); el.scrollTop = el.scrollHeight; }
+};
+function chatArrived(nm, x){
+  if (!chatOff) return;
+  unread++; applyChat();
+  const pk = $('#chatPeek');
+  pk.innerHTML = `<b>${esc(nm)}</b> ${esc(x)}`; pk.classList.remove('hidden');
+  pk.style.animation = 'none'; void pk.offsetWidth; pk.style.animation = '';
+  clearTimeout(peekT); peekT = setTimeout(() => pk.classList.add('hidden'), 3500);
+}
+$('#chatPeek').onclick = () => $('#btnChat').click();
+applyChat();
+
+// 가로 폰: 방장 버튼을 상단바로 (채팅을 닫아도 남게)
+const landMQ = matchMedia('(orientation:landscape) and (max-height:520px)');
+function placeHostbar(){
+  const hb = $('#hostbar');
+  if (landMQ.matches) { if (hb.parentElement.tagName !== 'HEADER') $('#hdrSp').before(hb); }
+  else if (hb.parentElement.id !== 'main') $('#main').prepend(hb);
+}
+placeHostbar();
+landMQ.addEventListener ? landMQ.addEventListener('change', placeHostbar) : landMQ.addListener(placeHostbar);
 const setHdrH = () => { const hd = document.querySelector('#game header'); if (hd && hd.offsetHeight) document.documentElement.style.setProperty('--hdrH', hd.offsetHeight + 'px'); };
 window.addEventListener('resize', () => { setHdrH(); if (inGame) render(); });
 window.addEventListener('hashchange', () => { if (!inGame) showInvite(); });
@@ -259,8 +327,21 @@ function stackHTML(amount, maxCols){
 // 애니메이션 상태: 리렌더가 와도 연출이 끊기지 않게 key로 기억
 const seenCards = new Set(), pendingCards = new Set(), firstSeen = new Map();
 const since = k => { const n = Date.now(); if (!firstSeen.has(k)) firstSeen.set(k, n); return n - firstSeen.get(k); };
-let prevSnap = null;
-function resetFx(){ seenCards.clear(); pendingCards.clear(); firstSeen.clear(); prevSnap = null; }
+let prevSnap = null, lastEvN = null;
+function resetFx(){ seenCards.clear(); pendingCards.clear(); firstSeen.clear(); prevSnap = null; lastEvN = null; }
+// 베팅 음성: 다이·체크·콜·삥·하프·따당
+const VOICE_WORDS = { die: '다이', check: '체크', call: '콜', bbing: '삥', half: '하프', ddadang: '따당!' };
+const VOICE_PITCH = [1.05, 0.75, 1.35, 0.9, 1.2, 0.65];
+function voiceEvent(s){
+  const ev = s.ev;
+  if (!ev) { if (lastEvN === null) lastEvN = 0; return; }
+  if (lastEvN !== null && ev.n !== lastEvN && VOICE_WORDS[ev.k]) {
+    const idx = Math.max(0, (s.pl || []).findIndex(p => p[0] === ev.id));
+    const word = ev.ai && ev.k !== 'die' ? VOICE_WORDS[ev.k].replace('!', '') + ', 올인!' : VOICE_WORDS[ev.k];
+    FX.say(word, VOICE_PITCH[idx % VOICE_PITCH.length]);
+  }
+  lastEvN = ev.n;
+}
 
 const ACT_LABEL = { die: '다이', check: '체크', call: '콜', bbing: '삥', half: '하프', ddadang: '따당' };
 function seatLayout(n){
@@ -282,7 +363,8 @@ function render(){
   const myId = s ? s.you : null;
   if (s) myReq = s.req || null;
   const practice = !!(s && s.practice);
-  $('#btnRebuy').textContent = practice ? '연습 칩 충전' : (myReq ? '충전 대기 중' : '칩 충전');
+  const rb = practice ? ['연습 칩 충전', '연습 충전'] : (myReq ? ['충전 대기 중', '대기 중'] : ['칩 충전', '충전']);
+  $('#btnRebuy .t-l').textContent = rb[0]; $('#btnRebuy .t-s').textContent = rb[1];
   $('#btnCopy').classList.toggle('hidden', practice);
   $('#hCode').textContent = practice ? '봇 연습' : (code || '').toUpperCase();
   renderHostbar();
@@ -291,6 +373,7 @@ function render(){
     $('#center').innerHTML = `<div class="banner"><span class="big">자리 잡는 중…</span></div>`;
     $('#me').innerHTML = ''; renderLog(); return;
   }
+  voiceEvent(s);
   const h = s.h, ph = s.ph, now = Date.now();
   const players = (s.pl || []).map(([id, name, chips, f]) => ({ id, name, chips, bot: !!(f & 1), away: !!(f & 2) }));
   const byId = Object.fromEntries(players.map(p => [p.id, p]));
@@ -515,17 +598,18 @@ function render(){
 }
 function renderHostbar(){
   const hb = $('#hostbar'), s = PS;
-  if (!s || s.host !== s.you) { hb.classList.add('hidden'); hb.dataset.sig = ''; return; }
+  if (!s || s.host !== s.you) { if (!hb.classList.contains('hidden')) { hb.classList.add('hidden'); setHdrH(); } hb.dataset.sig = ''; return; }
   hb.classList.remove('hidden');
+  placeHostbar();
   const redealPending = s.ph === 'show' && s.h && s.h.res && s.h.res.type === 'redeal';
   const sig = [s.ph, s.auto, s.pl.length, s.canStart, redealPending].join('|');
-  if (hb.dataset.sig === sig) return; hb.dataset.sig = sig;
+  if (hb.dataset.sig === sig) return; hb.dataset.sig = sig; setTimeout(setHdrH, 0);
   const betting = s.ph === 'bet';
   hb.innerHTML = `<span class="lbl">방장</span>
-    <button class="btn gold" id="hbStart" ${betting || redealPending || !s.canStart ? 'disabled' : ''}>${s.ph === 'show' ? '다음 판' : '게임 시작'}</button>
+    <button class="btn gold" id="hbStart" ${betting || redealPending || !s.canStart ? 'disabled' : ''}>${s.ph === 'show' ? '다음 판' : '<span class="t-l">게임 </span>시작'}</button>
     <button class="btn" id="hbBot" ${s.pl.length >= Sutda.MAX_PLAYERS ? 'disabled' : ''}>봇 추가</button>
     <span class="muted" style="margin-left:4px">${ruleText(s)}</span>
-    <label class="chk"><input type="checkbox" id="hbAuto" ${s.auto ? 'checked' : ''}> 자동으로 다음 판</label>`;
+    <label class="chk"><input type="checkbox" id="hbAuto" ${s.auto ? 'checked' : ''}> <span class="t-l">자동으로 다음 판</span><span class="t-s">자동</span></label>`;
   $('#hbStart').onclick = () => api({ t: 'start' });
   $('#hbBot').onclick = () => api({ t: 'bot' });
   $('#hbAuto').onchange = e => api({ t: 'auto', on: e.target.checked });

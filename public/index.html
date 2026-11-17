@@ -54,14 +54,23 @@
   <header>
     <span class="logo">섯다</span>
     <span class="muted">방</span><span class="code" id="hCode">----</span>
-    <button class="hbtn" id="btnCopy">초대 링크 복사</button>
+    <button class="hbtn" id="btnCopy"><span class="t-l">초대 링크 복사</span><span class="t-s">초대</span></button>
     <span class="chip-s" id="hNet">연결 중</span>
-    <span class="sp"></span>
-    <button class="hbtn" id="btnSound" title="효과음">🔊</button>
+    <span class="sp" id="hdrSp"></span>
+    <button class="hbtn" id="btnFull" title="전체 화면">⛶</button>
+    <button class="hbtn" id="btnSound" title="소리">🔊</button>
+    <button class="hbtn" id="btnChat" title="채팅창 열기/닫기">채팅<b class="badge hidden" id="chatBadge">0</b></button>
     <button class="hbtn" id="btnRanks">족보</button>
-    <button class="hbtn" id="btnRebuy">칩 충전</button>
+    <button class="hbtn" id="btnRebuy"><span class="t-l">칩 충전</span><span class="t-s">충전</span></button>
     <button class="hbtn" id="btnLeave">나가기</button>
   </header>
+  <div id="rotate">
+    <div class="rot-ico">📱</div>
+    <b>가로로 돌려주세요</b>
+    <p>게임 화면은 휴대폰을 가로로 눕혀서 해요.</p>
+    <button class="btn gold" id="btnRotFull">전체 화면으로 가로 고정</button>
+  </div>
+  <div id="chatPeek" class="hidden"></div>
   <div id="main">
     <div id="hostbar" class="hidden"></div>
     <div id="tableWrap">

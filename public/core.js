@@ -312,6 +312,7 @@
       void before;
     }
     h.lastAct[id] = kind;
+    S.ev = { n: ((S.ev && S.ev.n) || 0) + 1, id, k: kind, ai: !!h.allin[id] }; // 마지막 행동 (음성용)
     advance(S, now, id);
     bump(S);
     return true;
@@ -445,7 +446,7 @@
     const out = {
       v: S.v, ph: S.phase, ante: S.ante, sun: S.sun, sc: S.startChips, mode: S.mode || 'one', tg: S.ttaeng || 0, tie: S.tie || 'replay',
       pl: S.players.map(p => [p.id, p.name, p.chips, (p.bot ? 1 : 0) | (p.away ? 2 : 0)]),
-      log: S.log.slice(-8),
+      log: S.log.slice(-8), ev: S.ev || null,
     };
     if (h) {
       out.h = {

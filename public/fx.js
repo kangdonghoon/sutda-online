@@ -49,6 +49,38 @@
   FX.muted = () => muted;
   FX.setMuted = m => { muted = !!m; try { localStorage.setItem('sutda-mute', muted ? '1' : '0'); } catch (e) {} if (!muted) ac(); };
 
+  // ───────── 음성 (브라우저 내장 TTS) ─────────
+  const SS = window.speechSynthesis;
+  let voiceOn = true; try { voiceOn = localStorage.getItem('sutda-voice') !== '0'; } catch (e) {}
+  let koVoice = null, spoke = false;
+  function pickVoice() {
+    if (!SS) return;
+    const vs = SS.getVoices() || [];
+    const ko = vs.filter(v => /^ko/i.test(v.lang));
+    koVoice = ko.find(v => /google|yuna|heami|sunhi|natural|online/i.test(v.name)) || ko[0] || null;
+  }
+  if (SS) { pickVoice(); try { SS.addEventListener('voiceschanged', pickVoice); } catch (e) { SS.onvoiceschanged = pickVoice; } }
+  // iOS 사파리는 사용자 터치 안에서 한 번 말해야 그 뒤로 소리가 난다
+  const unlock = () => {
+    if (!SS || spoke) return; spoke = true;
+    try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; u.lang = 'ko-KR'; SS.speak(u); } catch (e) {}
+  };
+  document.addEventListener('pointerdown', unlock, { passive: true });
+  FX.voiceSupported = () => !!SS;
+  FX.voiceOn = () => voiceOn && !!SS;
+  FX.setVoice = on => { voiceOn = !!on; try { localStorage.setItem('sutda-voice', voiceOn ? '1' : '0'); } catch (e) {} if (!voiceOn && SS) SS.cancel(); };
+  // pitch 0.6~1.5: 사람마다 목소리 높낮이를 다르게
+  FX.say = (text, pitch, rate) => {
+    if (!SS || !voiceOn || muted || document.hidden) return;
+    try {
+      if (SS.speaking || SS.pending) SS.cancel(); // 밀리면 최신 것만
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = 'ko-KR'; if (koVoice) u.voice = koVoice;
+      u.pitch = pitch || 1; u.rate = rate || 1.15; u.volume = 1;
+      SS.speak(u);
+    } catch (e) {}
+  };
+
   // ───────── 날아가는 것들 ─────────
   const center = el => { const r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width, h: r.height, ok: r.width > 0 }; };
 
