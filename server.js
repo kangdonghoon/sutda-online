@@ -17,6 +17,20 @@ const TURN_MS = 30000;
 const SESSION_MS = 30 * 24 * 3600 * 1000; // 로그인 유지 30일
 
 const store = createStore();
+// 수수료 설정 (관리자 페이지에서 변경, DB settings 테이블에 저장)
+const RAKE_DEFAULT = { rate: 5, cap: 2000, min: 500, folds: false };
+let RAKE = Object.assign({}, RAKE_DEFAULT);
+function cleanRake(r) {
+  const num = (v, lo, hi, d) => { const n = Number(v); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d; };
+  return {
+    rate: Math.round(num(r && r.rate, 0, 20, RAKE_DEFAULT.rate) * 10) / 10,
+    cap: Math.floor(num(r && r.cap, 0, 1e9, RAKE_DEFAULT.cap)),
+    min: Math.floor(num(r && r.min, 0, 1e9, RAKE_DEFAULT.min)),
+    folds: !!(r && r.folds),
+  };
+}
+// 한국 시간 기준 오늘 0시
+function kstDayStart(now) { const k = new Date(now + 9 * 3600e3); return Date.UTC(k.getUTCFullYear(), k.getUTCMonth(), k.getUTCDate()) - 9 * 3600e3; }
 const rng = () => crypto.randomInt(0, 2 ** 32) / 2 ** 32;
 const rid = n => { const a = 'abcdefghjkmnpqrstuvwxyz23456789'; let s = ''; for (let i = 0; i < n; i++) s += a[crypto.randomInt(0, a.length)]; return s; };
 const clean = (s, n) => String(s == null ? '' : s).replace(/[\u0000-\u001f\u007f<>]/g, '').trim().slice(0, n);
@@ -63,7 +77,7 @@ const userRoom = new Map(); // uid → 방 코드 (한 계정은 한 방에만)
 function createRoom(hostId) {
   let code; do code = rid(4); while (rooms.has(code));
   const room = {
-    code, G: Sutda.createGame({ ante: 100, startChips: START_CHIPS }), host: hostId,
+    code, G: Sutda.createGame({ ante: 100, startChips: START_CHIPS, rake: Object.assign({}, RAKE) }), host: hostId,
     autoNext: true, banned: new Set(), conns: new Map(), lastSeen: new Map(),
     lastActive: Date.now(), botKey: '', botDue: 0, showKey: '', showDue: 0, dirty: false, savedKey: '', leaving: new Set(),
   };
@@ -111,6 +125,10 @@ function persistHand(room) {
     const gain = (h.result.pay && h.result.pay[id]) || 0;
     store.recordHand(uid, p.chips, h.result.winners.includes(id), gain).catch(dbErr);
   }
+  if (h.result.rake > 0) {
+    const winners = h.result.winners.map(id => (player(room, id) || {}).name).filter(Boolean).join(', ');
+    store.logRake({ at: Date.now(), room: room.code, hand: h.no, pot: h.pot, rake: h.result.rake, winners }).catch(dbErr);
+  }
   // 판 도중에 나간 사람은 판이 끝나면 자리에서 뺀다 (칩은 위에서 저장됨)
   for (const id of room.leaving) {
     const p = player(room, id), uid = uidOf(id);
@@ -125,7 +143,7 @@ function persistHand(room) {
 function viewFor(room, id) {
   const G = room.G, now = Date.now();
   const s = Sutda.publicState(G, now);
-  s.code = room.code; s.host = room.host; s.auto = room.autoNext; s.turnMs = TURN_MS; s.you = id;
+  s.code = room.code; s.host = room.host; s.auto = room.autoNext; s.turnMs = TURN_MS; s.you = id; s.rake = G.rake;
   s.canStart = Sutda.canStart(G);
   const h = G.hand;
   if (h && h.cards[id] && h.seats.includes(id)) s.me = { no: h.no, dl: h.deal, cards: h.cards[id] };
@@ -395,6 +413,26 @@ async function admin(t, body, u) {
       log('admin ban', u.username, '→', target.username, banned);
       return [200, { ok: true }];
     }
+    case 'admin.rake': {
+      const now = Date.now();
+      const [stats, recent] = await Promise.all([
+        store.rakeStats({ today: kstDayStart(now), week: now - 7 * 864e5 }),
+        store.recentRake(30),
+      ]);
+      let live = 0; for (const r of rooms.values()) live += r.G.rakeTotal || 0;
+      return [200, { settings: RAKE, stats, recent, live }];
+    }
+    case 'admin.rakeSet': {
+      RAKE = cleanRake(body);
+      await store.setSetting('rake', JSON.stringify(RAKE));
+      for (const r of rooms.values()) {
+        r.G.rake = Object.assign({}, RAKE);
+        r.G.log.push(RAKE.rate > 0 ? `수수료 ${RAKE.rate}%${RAKE.cap ? ` (최대 ${RAKE.cap.toLocaleString()})` : ''} — 다음 판부터` : '수수료 없음 — 다음 판부터');
+        r.G.v++; changed(r);
+      }
+      log('admin rake', u.username, JSON.stringify(RAKE));
+      return [200, { ok: true, settings: RAKE }];
+    }
     case 'admin.rooms':
       return [200, [...rooms.values()].map(r => ({
         code: r.code, phase: r.G.phase, hands: r.G.handNo,
@@ -493,7 +531,10 @@ const server = http.createServer(async (req, res) => {
 });
 
 store.init()
-  .then(() => server.listen(PORT, HOST, () => log(`섯다 서버 실행 중: http://localhost:${PORT} (저장소: ${store.kind}, 관리자: ${[...ADMINS].join(', ') || '없음'})`)))
+  .then(async () => {
+    try { const v = await store.getSetting('rake'); if (v) RAKE = cleanRake(JSON.parse(v)); } catch (e) { dbErr(e); }
+  })
+  .then(() => server.listen(PORT, HOST, () => log(`섯다 서버 실행 중: http://localhost:${PORT} (저장소: ${store.kind}, 관리자: ${[...ADMINS].join(', ') || '없음'}, 수수료: ${RAKE.rate}%)`)))
   .catch(e => { console.error('DB 연결 실패:', e.message); process.exit(1); });
 
 module.exports = { server, store }; // 테스트용

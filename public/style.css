@@ -229,6 +229,9 @@ aside h4{margin:0;padding:12px 14px 6px;font-size:14px;color:var(--red2);font-fa
 .rank-t td:first-child{color:var(--red2);white-space:nowrap;font-family:var(--serif);font-size:16px}
 .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:var(--paper);border:1px solid var(--gold);padding:10px 16px;border-radius:5px;z-index:90;font-size:14px}
 
+.credit{font-size:11px;color:var(--ink2);text-align:center;margin:10px 0 0;line-height:1.5}
+.credit a{color:inherit}
+
 /* 승리 이펙트 */
 .spark{position:fixed;z-index:61;pointer-events:none;font-family:var(--serif);color:var(--win);text-shadow:0 0 6px rgba(255,200,60,.9)}
 

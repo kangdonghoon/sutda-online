@@ -30,6 +30,17 @@ async function run(store, label) {
   assert.equal((await store.listUsers()).length, 2);
   await store.deleteUserSessions(a.id); assert.equal(await store.sessionUser('tokA'), null);
   await store.purgeSessions();
+  assert.equal(await store.getSetting('rake'), null);
+  await store.setSetting('rake', '{"rate":5}'); await store.setSetting('rake', '{"rate":7}');
+  assert.equal(await store.getSetting('rake'), '{"rate":7}');
+  const now = Date.now();
+  await store.logRake({ at: now - 8 * 864e5, room: 'old1', hand: 1, pot: 1000, rake: 50, winners: "옛날" });
+  await store.logRake({ at: now - 2 * 864e5, room: 'abcd', hand: 3, pot: 4000, rake: 200, winners: "민수" });
+  await store.logRake({ at: now, room: 'abcd', hand: 4, pot: 10000, rake: 500, winners: "동훈's, 지영" });
+  const st = await store.rakeStats({ today: now - 3600e3, week: now - 7 * 864e5 });
+  assert.deepEqual(st, { total: 750, n: 3, today: 500, todayN: 1, week: 700 });
+  const rc = await store.recentRake(2);
+  assert.deepEqual(rc.map(e => [e.hand, e.rake, e.winners]), [[4, 500, "동훈's, 지영"], [3, 200, '민수']]);
   console.log(label, 'ok');
 }
 (async () => {

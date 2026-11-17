@@ -1,0 +1,12 @@
+화투 카드 이미지 (01-1.png ~ 10-2.png)
+
+원본: "Hwatu overview.svg" — Marcus Richert
+      https://commons.wikimedia.org/wiki/File:Hwatu_overview.svg
+라이선스: Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0)
+      https://creativecommons.org/licenses/by-sa/4.0/
+
+변경 사항: 원본에서 1~10월 카드 20장을 한 장씩 잘라내고, 220×358px로 크기를 바꾸고,
+           카드 바깥 모서리를 투명하게 처리했습니다.
+
+이 폴더의 카드 이미지는 원본과 같은 CC BY-SA 4.0 라이선스를 따릅니다.
+(게임 코드에는 이 라이선스가 적용되지 않습니다.)

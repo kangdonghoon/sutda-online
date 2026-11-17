@@ -76,16 +76,30 @@
     return null;
   }
 
-  // 사이드팟 정산. contrib: {id: 총 기여}, live: 다이하지 않은 id(좌석순), cards
-  function settle(contrib, live, cards) {
+  // 사이드팟 정산. contrib: {id: 총 기여}, live: 다이하지 않은 id(좌석순), cards, rake: 뗄 수수료 총액
+  function settle(contrib, live, cards, rake) {
     const pay = {};
     const levels = [...new Set(Object.values(contrib).filter(v => v > 0))].sort((a, b) => a - b);
-    let prev = 0, mainWinners = null, leftover = 0;
+    const layers = [];
+    let prev = 0;
     for (const lv of levels) {
       const contributors = Object.keys(contrib).filter(id => contrib[id] >= lv);
-      const amount = (lv - prev) * contributors.length;
-      const elig = live.filter(id => contrib[id] >= lv);
+      layers.push({ amount: (lv - prev) * contributors.length, elig: live.filter(id => contrib[id] >= lv), refund: contributors.length === 1 });
       prev = lv;
+    }
+    // 수수료는 실제로 겨룬 팟에서만, 팟 크기에 비례해서 뗀다 (아무도 안 받은 초과 베팅은 그대로 돌려줌)
+    const contested = layers.filter(l => !l.refund);
+    const total = contested.reduce((a, l) => a + l.amount, 0);
+    let taken = 0;
+    rake = Math.max(0, Math.min(Math.floor(rake || 0), total));
+    if (rake > 0) {
+      let big = contested[0];
+      contested.forEach(l => { if (l.amount > big.amount) big = l; });
+      contested.forEach(l => { const r = Math.floor(l.amount * rake / total); l.amount -= r; taken += r; });
+      big.amount -= rake - taken; taken = rake;
+    }
+    let mainWinners = null, leftover = 0;
+    for (const { amount, elig } of layers) {
       if (!elig.length) { leftover += amount; continue; }
       const { winners } = elig.length === 1 ? { winners: elig } : pickWinners(elig, cards);
       if (!mainWinners) mainWinners = winners;
@@ -98,7 +112,24 @@
       let rem = leftover - share * mainWinners.length;
       mainWinners.forEach(w => { pay[w] = (pay[w] || 0) + share + (rem-- > 0 ? 1 : 0); });
     }
-    return { pay, mainWinners: mainWinners || [] };
+    return { pay, mainWinners: mainWinners || [], rake: taken };
+  }
+
+  // 수수료 계산. h.rk = 판 시작 때 고정한 설정 {rate(%), cap, min, folds}
+  // 받아준 사람이 없는 초과 베팅 (가장 많이 건 한 사람의 차액)
+  function uncalled(contrib) {
+    const v = Object.values(contrib || {}).sort((a, b) => b - a);
+    return v.length > 1 && v[0] > v[1] ? v[0] - v[1] : 0;
+  }
+  function rakeFor(h, isFold) {
+    const r = h.rk;
+    if (!r || !(r.rate > 0)) return 0;
+    if (isFold && !r.folds) return 0;
+    const pot = h.pot - uncalled(h.contrib);
+    if (pot <= 0 || pot < (r.min || 0)) return 0;
+    let a = Math.floor(pot * r.rate / 100);
+    if (r.cap > 0) a = Math.min(a, r.cap);
+    return Math.max(0, Math.min(a, pot));
   }
 
   function shuffle(rng) {
@@ -112,6 +143,7 @@
     return {
       v: 0, ante: (opts && opts.ante) || 100, startChips: (opts && opts.startChips) || 10000,
       players: [], phase: 'lobby', hand: null, sun: null, log: [], handNo: 0,
+      rake: (opts && opts.rake) || null, rakeTotal: 0,
     };
   }
   function P(S, id) { return S.players.find(p => p.id === id); }
@@ -157,7 +189,7 @@
     const h = S.hand = {
       no: S.handNo, seats, cards: {}, deck: shuffle(rng), round: 1, redeals: 0,
       folded: {}, allin: {}, bet: {}, contrib: {}, pot: 0, cur: 0, toAct: null, acted: {}, raises: 0,
-      deadline: 0, result: null, deal: 1, lastAct: {},
+      deadline: 0, result: null, deal: 1, lastAct: {}, rk: S.rake ? Object.assign({}, S.rake) : null,
     };
     seats.forEach(id => { h.contrib[id] = 0; h.bet[id] = 0; });
     S.phase = 'bet';
@@ -274,9 +306,10 @@
 
   function finishFold(S) {
     const h = S.hand, w = live(S)[0];
-    const pw = P(S, w); pw.chips += h.pot;
-    h.result = { type: 'fold', winners: [w], pay: { [w]: h.pot }, reveal: false };
-    log(S, `${pw.name} 승리 (+${h.pot.toLocaleString()}, 모두 다이)`);
+    const pw = P(S, w), rake = rakeFor(h, true), win = h.pot - rake;
+    pw.chips += win; S.rakeTotal = (S.rakeTotal || 0) + rake;
+    h.result = { type: 'fold', winners: [w], pay: { [w]: win }, rake, reveal: false };
+    log(S, `${pw.name} 승리 (+${win.toLocaleString()}, 모두 다이)${rake ? ` · 수수료 ${rake.toLocaleString()}` : ''}`);
     h.toAct = null; S.sun = w; S.phase = 'show';
   }
 
@@ -291,13 +324,15 @@
       S.phase = 'show';
       return;
     }
-    const { pay: payMap, mainWinners } = settle(h.contrib, ids, h.cards);
+    const { pay: payMap, mainWinners, rake } = settle(h.contrib, ids, h.cards, rakeFor(h, false));
     const pw = pickWinners(ids, h.cards);
     Object.entries(payMap).forEach(([id, a]) => { P(S, id).chips += a; });
-    h.result = { type: 'show', winners: mainWinners, pay: payMap, ev, catchBy: pw.catchBy, reveal: true };
+    S.rakeTotal = (S.rakeTotal || 0) + rake;
+    h.result = { type: 'show', winners: mainWinners, pay: payMap, ev, catchBy: pw.catchBy, rake, reveal: true };
     const wn = mainWinners.map(id => `${P(S, id).name}(${ev[id]})`).join(', ');
     log(S, `${wn} 승리${pw.catchBy ? ' — ' + pw.catchBy + '!' : ''}`);
     Object.entries(payMap).forEach(([id, a]) => { if (!mainWinners.includes(id)) log(S, `${P(S, id).name} 사이드팟 +${a.toLocaleString()}`); });
+    if (rake) log(S, `수수료 ${rake.toLocaleString()}`);
     S.sun = mainWinners[0];
     S.phase = 'show';
   }
@@ -370,7 +405,7 @@
   }
 
   const api = {
-    MONTH_NAMES, MAX_PLAYERS, card, evalHand, pickWinners, checkRedeal, settle, shuffle,
+    MONTH_NAMES, MAX_PLAYERS, card, evalHand, pickWinners, checkRedeal, settle, rakeFor, shuffle,
     createGame, addPlayer, removePlayer, canStart, startHand, legal, act, autoAct, redeal,
     publicState, botDecide, ACT_NAMES,
   };

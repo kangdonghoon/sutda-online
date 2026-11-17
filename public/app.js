@@ -332,7 +332,8 @@ function render(){
   let banner = '';
   if (ph === 'lobby' || !h) {
     const n = players.filter(p => p.chips > 0 && !p.away).length;
-    banner = `<span class="big">${n >= 2 ? '시작 대기' : '사람 모으는 중'}</span>${n}명 · 판돈 ${won(s.ante)}<br>${isHost ? (n >= 2 ? '위의 [게임 시작]을 누르세요' : '2명 이상 필요해요. 봇을 넣어도 돼요') : '방장이 시작하면 패가 돌아가요'}`;
+    const rk = s.rake && s.rake.rate > 0 ? ` · 수수료 ${s.rake.rate}%${s.rake.cap ? `(최대 ${won(s.rake.cap)})` : ''}` : '';
+    banner = `<span class="big">${n >= 2 ? '시작 대기' : '사람 모으는 중'}</span>${n}명 · 판돈 ${won(s.ante)}${rk}<br>${isHost ? (n >= 2 ? '위의 [게임 시작]을 누르세요' : '2명 이상 필요해요. 봇을 넣어도 돼요') : '방장이 시작하면 패가 돌아가요'}`;
   } else if (ph === 'bet') {
     const tn = byId[h.ta];
     banner = `<span class="big">${h.rd === 1 ? '첫 장' : '두 번째 장'}</span>${tn ? (tn.id === myId ? '내 차례예요' : esc(tn.name) + ' 차례') : ''}${h.cur ? ` · 현재 ${won(h.cur)}` : ''}`;
@@ -344,7 +345,7 @@ function render(){
     } else {
       const wn = winners.map(id => (byId[id] || {}).name).filter(Boolean).map(esc).join(', ');
       const wh = res.type === 'show' && winners[0] && ev[winners[0]] ? ev[winners[0]] : '';
-      banner = `${wh ? `<div class="seal" style="animation-delay:-${ago}ms">${esc(wh)}</div>` : ''}<span class="big" style="margin-top:6px">${wn} 승!</span>${res.type === 'fold' ? '모두 다이' : (res.catchBy ? `${esc(res.catchBy)}로 잡았어요` : '')}${s.auto && s.canStart ? ' · 곧 다음 판' : ''}`;
+      banner = `${wh ? `<div class="seal" style="animation-delay:-${ago}ms">${esc(wh)}</div>` : ''}<span class="big" style="margin-top:6px">${wn} 승!</span>${res.type === 'fold' ? '모두 다이' : (res.catchBy ? `${esc(res.catchBy)}로 잡았어요` : '')}${res.rake ? ` · 수수료 ${won(res.rake)}` : ''}${s.auto && s.canStart ? ' · 곧 다음 판' : ''}`;
     }
   }
   const pot = h ? h.pot : 0;

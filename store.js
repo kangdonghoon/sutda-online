@@ -45,6 +45,38 @@ class PgStore {
       expires_at BIGINT NOT NULL
     )`);
     await this.q(`CREATE INDEX IF NOT EXISTS sessions_user_idx ON sessions(user_id)`);
+    await this.q(`CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
+    await this.q(`CREATE TABLE IF NOT EXISTS rake_log (
+      id      SERIAL PRIMARY KEY,
+      at      BIGINT NOT NULL,
+      room    TEXT NOT NULL,
+      hand    INTEGER NOT NULL,
+      pot     BIGINT NOT NULL,
+      rake    BIGINT NOT NULL,
+      winners TEXT NOT NULL DEFAULT ''
+    )`);
+    await this.q(`CREATE INDEX IF NOT EXISTS rake_log_at_idx ON rake_log(at)`);
+  }
+  async getSetting(key) { const r = await this.q(`SELECT value FROM settings WHERE key = $1`, [key]); return r.rows[0] ? r.rows[0].value : null; }
+  async setSetting(key, value) {
+    await this.q(`INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [key, value]);
+  }
+  async logRake(e) {
+    await this.q(`INSERT INTO rake_log (at, room, hand, pot, rake, winners) VALUES ($1, $2, $3, $4, $5, $6)`, [e.at, e.room, e.hand, e.pot, e.rake, e.winners]);
+  }
+  // since: { today, week } 기준 시각(ms)
+  async rakeStats(since) {
+    const r = await this.q(`SELECT COALESCE(SUM(rake), 0) AS total, COUNT(*) AS n,
+        COALESCE(SUM(CASE WHEN at >= $1 THEN rake ELSE 0 END), 0) AS today,
+        COALESCE(SUM(CASE WHEN at >= $1 THEN 1 ELSE 0 END), 0) AS today_n,
+        COALESCE(SUM(CASE WHEN at >= $2 THEN rake ELSE 0 END), 0) AS week
+      FROM rake_log`, [since.today, since.week]);
+    const x = r.rows[0];
+    return { total: Number(x.total), n: Number(x.n), today: Number(x.today), todayN: Number(x.today_n), week: Number(x.week) };
+  }
+  async recentRake(limit) {
+    const r = await this.q(`SELECT * FROM rake_log ORDER BY id DESC LIMIT $1`, [limit]);
+    return r.rows.map(x => ({ at: Number(x.at), room: x.room, hand: Number(x.hand), pot: Number(x.pot), rake: Number(x.rake), winners: x.winners }));
   }
   async createUser({ username, nick, pwHash, salt }) {
     try {
@@ -99,8 +131,16 @@ class PgStore {
 
 // ───────── 메모리 (DB 없이 로컬 실행할 때) ─────────
 class MemStore {
-  constructor() { this.users = new Map(); this.sessions = new Map(); this.seq = 0; this.kind = 'memory'; }
+  constructor() { this.users = new Map(); this.sessions = new Map(); this.seq = 0; this.kind = 'memory'; this.settings = new Map(); this.rakes = []; }
   async init() {}
+  async getSetting(k) { return this.settings.has(k) ? this.settings.get(k) : null; }
+  async setSetting(k, v) { this.settings.set(k, String(v)); }
+  async logRake(e) { this.rakes.push(Object.assign({}, e)); if (this.rakes.length > 5000) this.rakes.shift(); }
+  async rakeStats(since) {
+    const sum = f => this.rakes.filter(f).reduce((a, e) => a + e.rake, 0);
+    return { total: sum(() => true), n: this.rakes.length, today: sum(e => e.at >= since.today), todayN: this.rakes.filter(e => e.at >= since.today).length, week: sum(e => e.at >= since.week) };
+  }
+  async recentRake(limit) { return this.rakes.slice(-limit).reverse().map(e => Object.assign({}, e)); }
   async createUser({ username, nick, pwHash, salt }) {
     if ([...this.users.values()].some(u => u.username === username)) return null;
     const now = Date.now();

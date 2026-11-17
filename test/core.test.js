@@ -49,14 +49,31 @@ assert.deepEqual(r.pay, { a: 500, b: 500 });
 r = S.settle({ a: 100, b: 500, c: 500 }, ['a', 'b', 'c'], { a: [sp(3), sp(8)], b: [sp(10), pi(10)], c: [pi(2), pi(3)] });
 assert.deepEqual(r.pay, { a: 300, b: 800 });
 
+// 수수료: 겨룬 판돈 1,000에서 50 → 승자 950, b의 초과 베팅 100은 그대로 돌려줌
+r = S.settle({ a: 500, b: 600 }, ['a', 'b'], { a: [sp(3), sp(8)], b: [pi(2), pi(3)] }, 50);
+assert.deepEqual(r.pay, { a: 950, b: 100 }); assert.equal(r.rake, 50);
+assert.equal(S.rakeFor({ pot: 1100, contrib: { a: 500, b: 600 }, rk: { rate: 5, cap: 0, min: 0 } }, false), 50);
+// 사이드팟에서도 칩 총합 = 판돈 - 수수료
+r = S.settle({ a: 100, b: 500, c: 500 }, ['a', 'b', 'c'], { a: [sp(3), sp(8)], b: [sp(10), pi(10)], c: [pi(2), pi(3)] }, 55);
+assert.equal(Object.values(r.pay).reduce((x, y) => x + y, 0), 1100 - 55);
+assert.ok(r.pay.a < 300 && r.pay.b < 800);
+// rakeFor: 비율·상한·최소·다이판
+const H = (pot, rk) => ({ pot, rk, contrib: { a: pot / 2, b: pot / 2 } });
+assert.equal(S.rakeFor(H(10000, { rate: 5, cap: 2000, min: 500 }), false), 500);
+assert.equal(S.rakeFor(H(100000, { rate: 5, cap: 2000, min: 500 }), false), 2000);
+assert.equal(S.rakeFor(H(400, { rate: 5, cap: 2000, min: 500 }), false), 0);
+assert.equal(S.rakeFor(H(10000, { rate: 5, cap: 2000, min: 500, folds: false }), true), 0);
+assert.equal(S.rakeFor(H(10000, { rate: 5, cap: 2000, min: 500, folds: true }), true), 500);
+assert.equal(S.rakeFor(H(10000, null), false), 0);
+
 // ── 시뮬레이션: 무작위 게임 수천 판, 칩 보존과 무한루프 없음 확인
 let seed = 7; const rng = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
-let hands = 0, redeals = 0, folds = 0, shows = 0;
+let hands = 0, redeals = 0, folds = 0, shows = 0, raked = 0;
 for (let g = 0; g < 300; g++) {
-  const G = S.createGame({ ante: 100, startChips: 3000 });
+  const G = S.createGame({ ante: 100, startChips: 3000, rake: g % 3 ? { rate: 5, cap: 300, min: 300, folds: g % 2 === 0 } : null });
   const n = 2 + (g % 5);
   for (let i = 0; i < n; i++) S.addPlayer(G, 'p' + i, 'P' + i, true);
-  const total = () => G.players.reduce((s, p) => s + p.chips, 0) + (G.hand && G.phase === 'bet' ? G.hand.pot : 0)
+  const total = () => G.rakeTotal + G.players.reduce((s, p) => s + p.chips, 0) + (G.hand && G.phase === 'bet' ? G.hand.pot : 0)
     + (G.hand && G.phase === 'show' && G.hand.result.type === 'redeal' ? G.hand.pot : 0);
   const T0 = total();
   for (let k = 0; k < 60 && S.canStart(G); k++) {
@@ -75,8 +92,9 @@ for (let g = 0; g < 300; g++) {
       assert.ok(JSON.stringify(S.publicState(G, 0)).length < 3500, 'state too big');
     }
     G.hand.result.type === 'fold' ? folds++ : shows++;
+    raked += G.hand.result.rake || 0;
     assert.equal(total(), T0, 'chips not conserved');
     G.players.forEach(p => assert.ok(p.chips >= 0));
   }
 }
-console.log('ok', { hands, redeals, folds, shows });
+console.log('ok', { hands, redeals, folds, shows, raked });
