@@ -78,6 +78,7 @@ setInterval(() => store.purgeSessions().catch(dbErr), 6 * 3600 * 1000);
 const rooms = new Map();
 const userRoom = new Map(); // uid → 방 코드 (한 계정은 한 방에만)
 const ANTES = [100, 500, 1000, 5000];
+const PRACTICE_CHIPS = 10000; // 봇 연습방 전용 칩 (계정 칩과 무관)
 function roomRules(body) {
   const ante = Number(body && body.ante);
   return {
@@ -87,11 +88,12 @@ function roomRules(body) {
     tie: body && body.tie === 'split' ? 'split' : 'replay',
   };
 }
-function createRoom(hostId, rules) {
+function createRoom(hostId, rules, practice) {
   rules = rules || roomRules({});
   let code; do code = rid(4); while (rooms.has(code));
   const room = {
-    code, G: Sutda.createGame({ ante: rules.ante, startChips: START_CHIPS, rake: Object.assign({}, RAKE), mode: rules.mode, ttaeng: rules.ttaeng, tie: rules.tie }), host: hostId,
+    code, G: Sutda.createGame({ ante: rules.ante, startChips: START_CHIPS, rake: practice ? null : Object.assign({}, RAKE), mode: rules.mode, ttaeng: rules.ttaeng, tie: rules.tie }), host: hostId,
+    practice: !!practice, owner: hostId,   // 연습방: 연습 칩 사용, DB 저장·수수료 없음, 비공개
     autoNext: true, banned: new Set(), conns: new Map(), lastSeen: new Map(),
     lastActive: Date.now(), botKey: '', botDue: 0, showKey: '', showDue: 0, dirty: false, savedKey: '', leaving: new Set(), credits: new Map(),
   };
@@ -121,7 +123,7 @@ function removeFromRoom(room, id) {
   const p = player(room, id); if (!p) return true;
   if (liveInHand(room, id)) return false;
   const uid = uidOf(id);
-  if (uid) { store.setChips(uid, p.chips).catch(dbErr); if (userRoom.get(uid) === room.code) userRoom.delete(uid); }
+  if (uid && !room.practice) { store.setChips(uid, p.chips).catch(dbErr); if (userRoom.get(uid) === room.code) userRoom.delete(uid); }
   Sutda.removePlayer(room.G, id);
   return true;
 }
@@ -133,6 +135,7 @@ function persistHand(room) {
   const key = h.no + ':' + h.deal;
   if (room.savedKey === key) return;
   room.savedKey = key;
+  if (room.practice) return; // 연습방은 계정에 아무것도 저장하지 않음
   // 판 도중에 승인된 충전은 판이 끝난 지금 지급
   for (const [id, amt] of room.credits) {
     const p = player(room, id);
@@ -163,7 +166,7 @@ function persistHand(room) {
 function viewFor(room, id) {
   const G = room.G, now = Date.now();
   const s = Sutda.publicState(G, now);
-  s.code = room.code; s.host = room.host; s.auto = room.autoNext; s.turnMs = TURN_MS; s.you = id;
+  s.code = room.code; s.host = room.host; s.auto = room.autoNext; s.turnMs = TURN_MS; s.you = id; s.practice = !!room.practice;
   if (s.h && s.h.res) delete s.h.res.rake; // 수수료는 플레이어에게 보이지 않음 (관리자 페이지에서만)
   const rq = pendingByUid.get(uidOf(id)); s.req = rq ? { amount: rq.amount } : null;
   s.canStart = Sutda.canStart(G);
@@ -228,7 +231,7 @@ setInterval(() => {
     if (dirty) changed(room);
     const anyone = [...room.conns.values()].some(s => s.size);
     if (!anyone && now - room.lastActive > ROOM_IDLE_MS) {
-      for (const p of humans(room)) { const uid = uidOf(p.id); if (uid) { store.setChips(uid, p.chips).catch(dbErr); if (userRoom.get(uid) === room.code) userRoom.delete(uid); } }
+      if (!room.practice) for (const p of humans(room)) { const uid = uidOf(p.id); if (uid) { store.setChips(uid, p.chips).catch(dbErr); if (userRoom.get(uid) === room.code) userRoom.delete(uid); } }
       rooms.delete(room.code);
     }
   }
@@ -257,11 +260,14 @@ async function seat(room, u) {
   const id = pid(u.id);
   let p = player(room, id);
   if (!p) {
-    const fresh = await store.userById(u.id);
-    p = Sutda.addPlayer(room.G, id, u.nick, false);
-    if (p) p.chips = fresh ? fresh.chips : START_CHIPS;
+    if (room.practice) { p = Sutda.addPlayer(room.G, id, u.nick, false); if (p) p.chips = PRACTICE_CHIPS; }
+    else {
+      const fresh = await store.userById(u.id);
+      p = Sutda.addPlayer(room.G, id, u.nick, false);
+      if (p) p.chips = fresh ? fresh.chips : START_CHIPS;
+    }
   } else { p.name = u.nick; p.away = false; room.leaving.delete(id); }
-  if (p) userRoom.set(u.id, room.code);
+  if (p && !room.practice) userRoom.set(u.id, room.code); // 연습방은 계정 칩과 연결하지 않음
   room.lastSeen.set(id, Date.now());
   return p;
 }
@@ -317,8 +323,9 @@ async function handle(body, ip) {
     case 'create': {
       const err = leaveOtherRoom(u.id, null); if (err) return [409, { error: err }];
       const rules = roomRules(body);
-      const room = createRoom(myId, rules);
+      const room = createRoom(myId, rules, !!body.solo);
       await seat(room, u);
+      if (room.practice) room.G.log.push(`연습 모드 — 연습 칩 ${PRACTICE_CHIPS.toLocaleString()}으로 시작해요. 계정 칩은 그대로예요`);
       room.G.log.push(`방 규칙: 판돈 ${rules.ante.toLocaleString()} · ${rules.mode === 'two' ? '두 장 받고 한 번 베팅' : '한 장씩 두 번 베팅'} · 땡값 ${rules.ttaeng ? '있음' : '없음'} · 동점 ${rules.tie === 'split' ? '나눠 갖기' : '재경기'}`);
       if (body.solo) { addBot(room); addBot(room); }
       log('room', room.code, 'by', u.username);
@@ -353,10 +360,18 @@ async function handle(body, ip) {
   switch (t) {
     case 'join': {
       if (room.banned.has(u.id)) return [403, { error: '이 방에서 내보내졌어요.' }];
+      if (room.practice && room.owner !== myId) return [403, { error: '혼자 하는 연습방이라 들어갈 수 없어요.' }];
       const err = leaveOtherRoom(u.id, room.code); if (err) return [409, { error: err }];
       const p = await seat(room, u);
       if (!room.host || !player(room, room.host)) room.host = myId;
       return ok({ seated: !!p });
+    }
+    case 'practiceRefill': {
+      const p = player(room, myId);
+      if (!room.practice || !p) return [400, { error: '연습방에서만 쓸 수 있어요' }];
+      if (liveInHand(room, myId) || p.chips >= G.ante) return [409, { error: '연습 칩이 판돈보다 적을 때 충전할 수 있어요' }];
+      p.chips = PRACTICE_CHIPS; G.log.push(`연습 칩 충전 (${PRACTICE_CHIPS.toLocaleString()})`); G.v++;
+      return ok();
     }
     case 'act':
       if (!Sutda.act(G, myId, String(body.k), now)) return [409, { error: '지금은 할 수 없어요' }];
@@ -368,6 +383,7 @@ async function handle(body, ip) {
       return [200, { ok: true }];
     }
     case 'leave': {
+      if (room.practice && room.owner === myId) { for (const p of humans(room)) dropConns(room, p.id, 'closed'); rooms.delete(room.code); return [200, { ok: true }]; }
       if (!removeFromRoom(room, myId)) {
         const p = player(room, myId); if (p) p.away = true;
         room.leaving.add(myId);
@@ -502,7 +518,7 @@ async function admin(t, body, u) {
     }
     case 'admin.rooms':
       return [200, [...rooms.values()].map(r => ({
-        code: r.code, phase: r.G.phase, hands: r.G.handNo,
+        code: r.code, phase: r.G.phase, hands: r.G.handNo, practice: !!r.practice,
         players: r.G.players.map(p => ({ name: p.name, chips: p.chips, bot: p.bot, away: p.away, host: p.id === r.host })),
       }))];
     case 'admin.close': {
@@ -510,7 +526,7 @@ async function admin(t, body, u) {
       if (!r) return [404, { error: '없는 방' }];
       for (const p of humans(r)) {
         const uid = uidOf(p.id);
-        if (uid) { store.setChips(uid, p.chips + (r.credits.get(p.id) || 0)).catch(dbErr); if (userRoom.get(uid) === r.code) userRoom.delete(uid); }
+        if (uid && !r.practice) { store.setChips(uid, p.chips + (r.credits.get(p.id) || 0)).catch(dbErr); if (userRoom.get(uid) === r.code) userRoom.delete(uid); }
         dropConns(r, p.id, 'closed');
       }
       rooms.delete(r.code);
@@ -570,7 +586,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'GET' && url.pathname === '/api/rooms') {
       const list = [...rooms.values()]
-        .filter(r => [...r.conns.values()].some(s => s.size))
+        .filter(r => !r.practice && [...r.conns.values()].some(s => s.size))
         .map(r => { const h = player(r, r.host); return { code: r.code, host: h ? h.name : '', n: r.G.players.length, st: r.G.phase, ante: r.G.ante, mode: r.G.mode, tg: r.G.ttaeng, tie: r.G.tie }; })
         .slice(0, 20);
       return json(res, 200, list);

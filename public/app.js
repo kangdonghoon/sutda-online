@@ -75,7 +75,7 @@ function renderEntry(){
   pb.classList.toggle('hidden', !li);
   if (li) {
     pb.innerHTML = `<div class="prof"><div class="who"><b>${esc(user.nick)}</b> <span class="muted">@${esc(user.username)}</span>
-        <div class="stats"><span>칩 <b>${won(user.chips)}</b></span><span>${won(user.hands)}판 ${won(user.wins)}승</span><span>최고 <b>${won(user.best)}</b></span></div>
+        <div class="stats"><span>칩 <b>${won(user.chips)}</b></span></div>
         ${myReq ? `<div class="reqline">칩 ${won(myReq.amount)} 충전 요청을 관리자가 확인하고 있어요</div>` : ''}</div>
       <div class="row" style="flex:0 0 auto">${user.admin ? '<a class="hbtn" href="/admin" style="text-decoration:none;color:var(--red);font-weight:700">관리자</a>' : ''}<button class="hbtn" id="btnChip">${myReq ? '충전 대기 중' : '칩 충전'}</button><button class="hbtn" id="btnNick">닉네임 변경</button><button class="hbtn" id="btnLogout">로그아웃</button></div></div>`;
     $('#btnLogout').onclick = async () => { await api({ t: 'logout' }, true); setLoggedOut(); };
@@ -103,7 +103,7 @@ function create(solo){
       <div class="muted" style="margin-top:6px">장땡 판돈 100% · 13·18광땡 150% · 38광땡 200% (끝까지 남은 사람만 냄)</div></div>
     <div class="opt"><div class="olbl">패가 같을 때</div><div class="seg">${pill('rTie', 'replay', '동점자끼리 재경기', last.tie !== 'split')}${pill('rTie', 'split', '나눠 갖기', last.tie === 'split')}</div>
       <div class="muted" style="margin-top:6px">재경기는 판돈 그대로 동점인 사람끼리 다시 겨뤄요 (최대 3번)</div></div>
-    <p class="muted">방을 만든 뒤에는 규칙을 바꿀 수 없어요.</p>
+    <p class="muted">${solo ? `봇 연습은 <b>연습 칩 10,000</b>으로 해요. 따거나 잃어도 계정 칩은 그대로예요. ` : ''}방을 만든 뒤에는 규칙을 바꿀 수 없어요.</p>
     <div class="row"><button class="btn" data-close>취소</button><button class="btn gold" id="rOk">${solo ? '연습 시작' : '방 만들기'}</button></div>`);
   $('#rOk').onclick = async () => {
     const val = n => document.querySelector(`input[name=${n}]:checked`).value;
@@ -213,7 +213,7 @@ $('#btnCopy').onclick = async () => {
   const link = location.origin + location.pathname + '#' + code;
   try { await navigator.clipboard.writeText(link); toast('초대 링크를 복사했어요'); } catch(e){ toast(link); }
 };
-$('#btnRebuy').onclick = openChipModal;
+$('#btnRebuy').onclick = () => (PS && PS.practice ? api({ t: 'practiceRefill' }) : openChipModal());
 $('#btnRanks').onclick = showRanks;
 const soundBtn = () => { $('#btnSound').textContent = FX.muted() ? '🔇' : '🔊'; };
 $('#btnSound').onclick = () => { FX.setMuted(!FX.muted()); soundBtn(); };
@@ -276,7 +276,10 @@ function render(){
   const s = PS;
   const myId = s ? s.you : null;
   if (s) myReq = s.req || null;
-  $('#btnRebuy').textContent = myReq ? '충전 대기 중' : '칩 충전';
+  const practice = !!(s && s.practice);
+  $('#btnRebuy').textContent = practice ? '연습 칩 충전' : (myReq ? '충전 대기 중' : '칩 충전');
+  $('#btnCopy').classList.toggle('hidden', practice);
+  $('#hCode').textContent = practice ? '봇 연습' : (code || '').toUpperCase();
   renderHostbar();
   if (!s) {
     $('#seats').innerHTML = ''; $('#bets').innerHTML = '';
@@ -362,7 +365,7 @@ function render(){
     const n = players.filter(p => p.chips > 0 && !p.away).length;
     const md = s.mode === 'two' ? '두 장 받고 한 번 베팅' : '한 장씩 두 번 베팅';
     const tgt = s.tg ? ' · 땡값 있음' : '';
-    banner = `<span class="big">${n >= 2 ? '시작 대기' : '사람 모으는 중'}</span>${n}명 · 판돈 ${won(s.ante)}<br>${md}${tgt}<br>${isHost ? (n >= 2 ? '위의 [게임 시작]을 누르세요' : '2명 이상 필요해요. 봇을 넣어도 돼요') : '방장이 시작하면 패가 돌아가요'}`;
+    banner = `${practice ? '<div style="margin-bottom:4px"><span class="seal" style="font-size:15px;animation:none">연습 칩</span></div>' : ''}<span class="big">${n >= 2 ? '시작 대기' : '사람 모으는 중'}</span>${n}명 · 판돈 ${won(s.ante)}<br>${md}${tgt}<br>${isHost ? (n >= 2 ? '위의 [게임 시작]을 누르세요' : '2명 이상 필요해요. 봇을 넣어도 돼요') : '방장이 시작하면 패가 돌아가요'}`;
   } else if (ph === 'bet') {
     const tn = byId[h.ta];
     banner = `<span class="big">${h.rd === 1 ? '첫 장' : (s.mode === 'two' && h.dl === 1 ? '베팅' : '두 번째 장')}</span>${tn ? (tn.id === myId ? '내 차례예요' : esc(tn.name) + ' 차례') : ''}${h.cur ? ` · 현재 ${won(h.cur)}` : ''}`;
@@ -412,7 +415,7 @@ function render(){
     else if (mine && mine.length === 1) { const k = Sutda.card(mine[0]); hn = `${k.m}월${k.kind === 'gwang' ? ' 광' : ''}`; }
     if (h && [0, 1].some(k => pendingCards.has(`${handKey}:${myId}:${k}`))) hn = ''; // 카드가 도착한 뒤에 족보 공개
     let status = '';
-    if (!inHand(myId)) status = mp.chips <= 0 ? (myReq ? '칩 충전 승인을 기다리는 중' : '칩이 없어요 — 위의 [칩 충전]으로 요청하세요') : (ph === 'bet' ? '다음 판부터 참여해요' : '');
+    if (!inHand(myId)) status = mp.chips <= 0 ? (practice ? '연습 칩이 없어요 — 위의 [연습 칩 충전]' : myReq ? '칩 충전 승인을 기다리는 중' : '칩이 없어요 — 위의 [칩 충전]으로 요청하세요') : (ph === 'bet' ? '다음 판부터 참여해요' : '');
     else if (folded(myId)) status = '다이했어요';
     else if (allin(myId)) status = '올인!';
     else if (myTurn) status = '<b style="color:var(--red)">내 차례</b>';
@@ -434,7 +437,7 @@ function render(){
       <div class="info">
         <div class="meRow"><div class="ava">${initial(mp.name)}</div>
           <div><div class="myname">${esc(mp.name)} ${s.sun === myId && h ? '<span class="tag sun">선</span>' : ''}${isHost ? ' <span class="tag host">방장</span>' : ''}</div>
-          <div class="mychips">보유 <b>${won(mp.chips)}</b>${status ? ' · ' + status : ''}</div></div></div>
+          <div class="mychips">${practice ? '연습 칩' : '보유'} <b>${won(mp.chips)}</b>${status ? ' · ' + status : ''}</div></div></div>
         <div class="myhand">${esc(hn)}</div>
         ${myTurn ? '<div class="timer"><i data-timer></i></div>' : ''}
       </div>
