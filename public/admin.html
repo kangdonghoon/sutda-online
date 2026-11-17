@@ -36,6 +36,9 @@ td.r{text-align:right;font-variant-numeric:tabular-nums}
 .code{font-family:ui-monospace,Menlo,monospace;color:var(--gold2);font-weight:700;letter-spacing:.1em}
 .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#081f18;border:1px solid var(--gold);padding:10px 16px;border-radius:10px;font-size:14px}
 .wrap{overflow-x:auto}
+.reqIn{width:120px;text-align:right}
+details summary{cursor:pointer;margin:12px 0 6px}
+.st-approved{color:var(--ok)}.st-rejected{color:var(--bad)}.st-canceled{color:var(--dim)}
 .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-bottom:14px}
 .tile{background:rgba(0,0,0,.25);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
 .tile small{display:block;color:var(--dim);font-size:12px;margin-bottom:4px}
@@ -71,6 +74,12 @@ async function init(){
   if (!me.user.admin) return deny('관리자 계정이 아니에요. 서버의 ADMIN_USERS 환경변수에 아이디를 넣어야 해요.');
   $('#who').textContent = '@' + me.user.username;
   $('#main').innerHTML = `
+    <section><h2>충전 요청 <span id="reqCount"></span></h2>
+      <div class="wrap"><table><thead><tr><th>회원</th><th style="text-align:right">현재 칩</th><th style="text-align:right">요청</th><th>메모</th><th>요청 시각</th><th>지급할 칩</th><th></th></tr></thead><tbody id="reqs"></tbody></table></div>
+      <details><summary class="muted">최근 처리 내역</summary>
+        <div class="wrap"><table><thead><tr><th>처리 시각</th><th>회원</th><th style="text-align:right">요청</th><th style="text-align:right">지급</th><th>결과</th><th>처리자</th></tr></thead><tbody id="reqsDone"></tbody></table></div>
+      </details>
+    </section>
     <section><h2>수수료</h2>
       <div class="tiles" id="rakeTiles"><div class="muted">불러오는 중…</div></div>
       <form id="rakeForm" class="bar">
@@ -93,6 +102,8 @@ async function init(){
   $('#users').addEventListener('click', onUserClick);
   $('#rooms').addEventListener('click', onRoomClick);
   $('#rakeForm').addEventListener('submit', saveRake);
+  $('#reqs').addEventListener('click', onReqClick);
+  loadReqs(); setInterval(loadReqs, 5000);
   loadUsers(); loadRooms(); loadRake(true);
   setInterval(loadRooms, 5000);
   setInterval(() => loadRake(false), 10000);
@@ -106,7 +117,7 @@ async function loadUsers(){
       <td><b>${esc(u.nick)}</b> <span class="muted">@${esc(u.username)}</span>${u.admin ? '<span class="tag gold">관리자</span>' : ''}${u.banned ? '<span class="tag bad">정지</span>' : ''}</td>
       <td>${u.room ? `<span class="code">${esc(u.room.toUpperCase())}</span>` : '<span class="muted">-</span>'}</td>
       <td class="r">${won(u.hands)} / ${won(u.wins)}</td>
-      <td class="r">${won(u.rebuys)}</td>
+      <td class="r">${won(u.rebuys)}회<div class="muted">${won(u.bought || 0)}</div></td>
       <td class="muted">${ago(u.lastSeen)}</td>
       <td><input class="inp chipIn" value="${u.chips}" inputmode="numeric"> <button class="btn sm" data-a="chips">저장</button></td>
       <td>${u.admin ? '' : `<button class="btn sm ${u.banned ? '' : 'red'}" data-a="ban" data-v="${u.banned ? 0 : 1}">${u.banned ? '정지 해제' : '정지'}</button>`}</td>
@@ -125,6 +136,44 @@ async function onUserClick(e){
     }
     loadUsers();
   } catch(err){ toast(err.message); }
+}
+let reqSig = '';
+async function loadReqs(force){
+  try {
+    const r = await api({ t: 'admin.requests' });
+    const n = r.pending.length;
+    document.title = (n ? `(${n}) ` : '') + '섯다 관리자';
+    $('#reqCount').innerHTML = n ? `<span class="tag bad" style="font-size:13px">${n}건 대기</span>` : '';
+    // 입력 중인 금액이 지워지지 않게, 목록이 바뀔 때만 다시 그림
+    const sig = r.pending.map(q => q.id + ':' + q.chips + ':' + q.inHand).join(',');
+    if (force || sig !== reqSig) {
+      reqSig = sig;
+      $('#reqs').innerHTML = r.pending.map(q => `<tr data-id="${q.id}">
+        <td><b>${esc(q.nick)}</b> <span class="muted">@${esc(q.username)}</span>${q.room ? ` <span class="code">${esc(q.room.toUpperCase())}</span>` : ''}${q.inHand ? '<span class="tag gold">게임 중 · 판 끝나면 지급</span>' : ''}</td>
+        <td class="r">${won(q.chips)}</td><td class="r">${won(q.amount)}</td>
+        <td>${q.note ? esc(q.note) : '<span class="muted">-</span>'}</td>
+        <td class="muted">${ago(q.createdAt)}</td>
+        <td><input class="inp reqIn" value="${q.amount}" inputmode="numeric"></td>
+        <td style="white-space:nowrap"><button class="btn sm gold" data-r="approve">승인</button> <button class="btn sm red" data-r="reject">거절</button></td>
+      </tr>`).join('') || '<tr><td colspan="7" class="muted">기다리는 요청이 없어요</td></tr>';
+    }
+    const label = { approved: '승인', rejected: '거절', canceled: '본인 취소' };
+    $('#reqsDone').innerHTML = r.recent.map(q => `<tr><td class="muted">${q.decidedAt ? when(q.decidedAt) : '-'}</td><td>${esc(q.nick)} <span class="muted">@${esc(q.username)}</span></td>
+      <td class="r">${won(q.amount)}</td><td class="r">${q.granted != null ? won(q.granted) : '-'}</td><td class="st-${q.status}">${label[q.status] || q.status}</td><td class="muted">${q.decidedBy === 'self' ? '-' : esc(q.decidedBy || '')}</td></tr>`).join('')
+      || '<tr><td colspan="6" class="muted">처리 내역이 없어요</td></tr>';
+  } catch(e){}
+}
+async function onReqClick(e){
+  const b = e.target.closest('[data-r]'); if (!b) return;
+  const tr = b.closest('tr'), id = Number(tr.dataset.id);
+  b.disabled = true;
+  try {
+    if (b.dataset.r === 'approve') {
+      const amount = Number(tr.querySelector('.reqIn').value.replace(/,/g, ''));
+      await api({ t: 'admin.approve', id, amount }); toast(`${won(amount)} 지급을 승인했어요`);
+    } else { await api({ t: 'admin.reject', id }); toast('요청을 거절했어요'); }
+    loadReqs(true); loadUsers();
+  } catch(err){ toast(err.message); b.disabled = false; loadReqs(true); }
 }
 const when = t => { const d = new Date(t); const p = n => String(n).padStart(2, '0'); return `${d.getMonth() + 1}/${d.getDate()} ${p(d.getHours())}:${p(d.getMinutes())}`; };
 async function loadRake(fillForm){

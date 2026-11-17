@@ -232,6 +232,14 @@ aside h4{margin:0;padding:12px 14px 6px;font-size:14px;color:var(--red2);font-fa
 .credit{font-size:11px;color:var(--ink2);text-align:center;margin:10px 0 0;line-height:1.5}
 .credit a{color:inherit}
 
+.amts{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:6px 0 12px}
+.amt{position:relative;cursor:pointer}
+.amt input{position:absolute;opacity:0}
+.amt span{display:block;text-align:center;padding:12px;border-radius:5px;border:1px solid rgba(42,31,22,.35);background:rgba(255,253,245,.6);font-family:var(--serif);font-size:20px}
+.amt input:checked+span{background:var(--red);color:#fff6e6;border-color:var(--red2);box-shadow:0 2px 0 var(--red2)}
+.amt input:focus-visible+span{outline:2px solid var(--gold)}
+.reqline{margin-top:6px;font-size:13px;color:var(--red2)}
+
 /* 승리 이펙트 */
 .spark{position:fixed;z-index:61;pointer-events:none;font-family:var(--serif);color:var(--win);text-shadow:0 0 6px rgba(255,200,60,.9)}
 

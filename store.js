@@ -3,13 +3,22 @@
 
 const START_CHIPS = 10000;
 
+function mapReq(r) {
+  if (!r) return null;
+  return {
+    id: Number(r.id), userId: Number(r.user_id), amount: Number(r.amount), note: r.note || '', status: r.status,
+    createdAt: Number(r.created_at), decidedAt: r.decided_at == null ? null : Number(r.decided_at), decidedBy: r.decided_by || null,
+    granted: r.granted == null ? null : Number(r.granted), username: r.username, nick: r.nick,
+    userChips: r.user_chips == null ? undefined : Number(r.user_chips),
+  };
+}
 function mapUser(r) {
   if (!r) return null;
   const b = v => v === true || v === 't' || v === 'true' || v === 1;
   return {
     id: Number(r.id), username: r.username, nick: r.nick, pwHash: r.pw_hash, salt: r.salt,
     chips: Number(r.chips), hands: Number(r.hands), wins: Number(r.wins), best: Number(r.best),
-    rebuys: Number(r.rebuys), banned: b(r.banned), createdAt: Number(r.created_at), lastSeen: Number(r.last_seen),
+    rebuys: Number(r.rebuys), bought: Number(r.bought || 0), banned: b(r.banned), createdAt: Number(r.created_at), lastSeen: Number(r.last_seen),
   };
 }
 
@@ -56,6 +65,52 @@ class PgStore {
       winners TEXT NOT NULL DEFAULT ''
     )`);
     await this.q(`CREATE INDEX IF NOT EXISTS rake_log_at_idx ON rake_log(at)`);
+    // 충전 요청
+    await this.q(`ALTER TABLE users ADD COLUMN IF NOT EXISTS bought BIGINT NOT NULL DEFAULT 0`);
+    await this.q(`UPDATE users SET bought = rebuys * ${START_CHIPS} WHERE bought = 0 AND rebuys > 0`); // 예전 자동 충전분 이전
+    await this.q(`CREATE TABLE IF NOT EXISTS chip_requests (
+      id         SERIAL PRIMARY KEY,
+      user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      amount     BIGINT NOT NULL,
+      note       TEXT NOT NULL DEFAULT '',
+      status     TEXT NOT NULL DEFAULT 'pending',
+      created_at BIGINT NOT NULL,
+      decided_at BIGINT,
+      decided_by TEXT,
+      granted    BIGINT
+    )`);
+    await this.q(`CREATE UNIQUE INDEX IF NOT EXISTS chip_requests_one_pending ON chip_requests(user_id) WHERE status = 'pending'`);
+    await this.q(`CREATE INDEX IF NOT EXISTS chip_requests_status_idx ON chip_requests(status, id)`);
+  }
+  // 요청 만들기. 이미 대기 중인 요청이 있으면 null
+  async createChipRequest(userId, amount, note) {
+    try {
+      const r = await this.q(`INSERT INTO chip_requests (user_id, amount, note, created_at) VALUES ($1, $2, $3, $4) RETURNING *`, [userId, amount, note || '', Date.now()]);
+      return mapReq(r.rows[0]);
+    } catch (e) { if (e.code === '23505') return null; throw e; }
+  }
+  async pendingRequests() {
+    const r = await this.q(`SELECT c.*, u.username, u.nick, u.chips AS user_chips FROM chip_requests c JOIN users u ON u.id = c.user_id WHERE c.status = 'pending' ORDER BY c.id`);
+    return r.rows.map(mapReq);
+  }
+  async recentRequests(limit) {
+    const r = await this.q(`SELECT c.*, u.username, u.nick FROM chip_requests c JOIN users u ON u.id = c.user_id WHERE c.status <> 'pending' ORDER BY c.decided_at DESC NULLS LAST, c.id DESC LIMIT $1`, [limit]);
+    return r.rows.map(mapReq);
+  }
+  // 대기 중인 요청만 처리됨 (두 번 승인 방지). 처리된 요청을 돌려주고, 이미 처리됐으면 null
+  async decideChipRequest(id, status, granted, by) {
+    const r = await this.q(`UPDATE chip_requests SET status = $2, granted = $3, decided_at = $4, decided_by = $5 WHERE id = $1 AND status = 'pending' RETURNING *`,
+      [id, status, granted, Date.now(), by]);
+    return mapReq(r.rows[0]);
+  }
+  async cancelChipRequest(userId) {
+    const r = await this.q(`UPDATE chip_requests SET status = 'canceled', decided_at = $2, decided_by = 'self' WHERE user_id = $1 AND status = 'pending' RETURNING *`, [userId, Date.now()]);
+    return mapReq(r.rows[0]);
+  }
+  // 승인된 충전: chips가 숫자면 그 값으로, null이면 기존 칩에 더함
+  async grantChips(userId, amount, chips) {
+    if (chips == null) await this.q(`UPDATE users SET chips = chips + $2, rebuys = rebuys + 1, bought = bought + $2 WHERE id = $1`, [userId, amount]);
+    else await this.q(`UPDATE users SET chips = $3, rebuys = rebuys + 1, bought = bought + $2 WHERE id = $1`, [userId, amount, chips]);
   }
   async getSetting(key) { const r = await this.q(`SELECT value FROM settings WHERE key = $1`, [key]); return r.rows[0] ? r.rows[0].value : null; }
   async setSetting(key, value) {
@@ -110,7 +165,6 @@ class PgStore {
       [userId, chips, won ? 1 : 0, gain, Date.now()]);
   }
   async setChips(userId, chips) { await this.q(`UPDATE users SET chips = $2, last_seen = $3 WHERE id = $1`, [userId, chips, Date.now()]); }
-  async rebuy(userId, chips) { await this.q(`UPDATE users SET chips = $2, rebuys = rebuys + 1 WHERE id = $1`, [userId, chips]); }
   async setBanned(userId, banned) { await this.q(`UPDATE users SET banned = $2 WHERE id = $1`, [userId, !!banned]); }
   async setNick(userId, nick) { await this.q(`UPDATE users SET nick = $2 WHERE id = $1`, [userId, nick]); }
   async touch(userId) { await this.q(`UPDATE users SET last_seen = $2 WHERE id = $1`, [userId, Date.now()]); }
@@ -121,9 +175,9 @@ class PgStore {
     return r.rows.map(mapUser);
   }
   async ranking(limit) {
-    // 수익 = 현재 칩 - (가입 칩 + 충전 횟수 × 충전 칩)
+    // 수익 = 현재 칩 - (가입 칩 + 충전받은 칩)
     const r = await this.q(
-      `SELECT *, chips - ${START_CHIPS} * (1 + rebuys) AS profit FROM users WHERE banned = FALSE AND hands > 0 ORDER BY profit DESC, hands DESC LIMIT $1`,
+      `SELECT *, chips - ${START_CHIPS} - bought AS profit FROM users WHERE banned = FALSE AND hands > 0 ORDER BY profit DESC, hands DESC LIMIT $1`,
       [limit]);
     return r.rows.map(row => Object.assign(mapUser(row), { profit: Number(row.profit) }));
   }
@@ -131,7 +185,7 @@ class PgStore {
 
 // ───────── 메모리 (DB 없이 로컬 실행할 때) ─────────
 class MemStore {
-  constructor() { this.users = new Map(); this.sessions = new Map(); this.seq = 0; this.kind = 'memory'; this.settings = new Map(); this.rakes = []; }
+  constructor() { this.users = new Map(); this.sessions = new Map(); this.seq = 0; this.kind = 'memory'; this.settings = new Map(); this.rakes = []; this.reqs = []; this.reqSeq = 0; }
   async init() {}
   async getSetting(k) { return this.settings.has(k) ? this.settings.get(k) : null; }
   async setSetting(k, v) { this.settings.set(k, String(v)); }
@@ -144,7 +198,7 @@ class MemStore {
   async createUser({ username, nick, pwHash, salt }) {
     if ([...this.users.values()].some(u => u.username === username)) return null;
     const now = Date.now();
-    const u = { id: ++this.seq, username, nick, pwHash, salt, chips: START_CHIPS, hands: 0, wins: 0, best: 0, rebuys: 0, banned: false, createdAt: now, lastSeen: now };
+    const u = { id: ++this.seq, username, nick, pwHash, salt, chips: START_CHIPS, hands: 0, wins: 0, best: 0, rebuys: 0, bought: 0, banned: false, createdAt: now, lastSeen: now };
     this.users.set(u.id, u); return { ...u };
   }
   async userByName(n) { const u = [...this.users.values()].find(x => x.username === n); return u ? { ...u } : null; }
@@ -156,7 +210,23 @@ class MemStore {
   async purgeSessions() { const now = Date.now(); for (const [h, s] of this.sessions) if (s.exp < now) this.sessions.delete(h); }
   async recordHand(id, chips, won, gain) { const u = this.users.get(id); if (!u) return; u.chips = chips; u.hands++; if (won) u.wins++; u.best = Math.max(u.best, gain); u.lastSeen = Date.now(); }
   async setChips(id, chips) { const u = this.users.get(id); if (u) { u.chips = chips; u.lastSeen = Date.now(); } }
-  async rebuy(id, chips) { const u = this.users.get(id); if (u) { u.chips = chips; u.rebuys++; } }
+  async createChipRequest(userId, amount, note) {
+    if (this.reqs.some(r => r.userId === userId && r.status === 'pending')) return null;
+    const r = { id: ++this.reqSeq, userId, amount, note: note || '', status: 'pending', createdAt: Date.now(), decidedAt: null, decidedBy: null, granted: null };
+    this.reqs.push(r); return this.withUser(r);
+  }
+  withUser(r, chips) { const u = this.users.get(r.userId) || {}; return Object.assign({}, r, { username: u.username, nick: u.nick }, chips ? { userChips: u.chips } : {}); }
+  async pendingRequests() { return this.reqs.filter(r => r.status === 'pending').map(r => this.withUser(r, true)); }
+  async recentRequests(limit) { return this.reqs.filter(r => r.status !== 'pending').sort((a, b) => (b.decidedAt || 0) - (a.decidedAt || 0) || b.id - a.id).slice(0, limit).map(r => this.withUser(r)); }
+  async decideChipRequest(id, status, granted, by) {
+    const r = this.reqs.find(x => x.id === Number(id) && x.status === 'pending'); if (!r) return null;
+    Object.assign(r, { status, granted, decidedAt: Date.now(), decidedBy: by }); return this.withUser(r);
+  }
+  async cancelChipRequest(userId) {
+    const r = this.reqs.find(x => x.userId === userId && x.status === 'pending'); if (!r) return null;
+    Object.assign(r, { status: 'canceled', decidedAt: Date.now(), decidedBy: 'self' }); return this.withUser(r);
+  }
+  async grantChips(id, amount, chips) { const u = this.users.get(id); if (!u) return; u.chips = chips == null ? u.chips + amount : chips; u.rebuys++; u.bought += amount; }
   async setBanned(id, b) { const u = this.users.get(id); if (u) u.banned = !!b; }
   async setNick(id, nick) { const u = this.users.get(id); if (u) u.nick = nick; }
   async touch(id) { const u = this.users.get(id); if (u) u.lastSeen = Date.now(); }
@@ -167,7 +237,7 @@ class MemStore {
   }
   async ranking(limit) {
     return [...this.users.values()].filter(u => !u.banned && u.hands > 0)
-      .map(u => ({ ...u, profit: u.chips - START_CHIPS * (1 + u.rebuys) }))
+      .map(u => ({ ...u, profit: u.chips - START_CHIPS - u.bought }))
       .sort((a, b) => b.profit - a.profit || b.hands - a.hands).slice(0, limit);
   }
 }

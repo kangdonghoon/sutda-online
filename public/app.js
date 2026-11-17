@@ -14,6 +14,7 @@ const rid = n => { const a = 'abcdefghjkmnpqrstuvwxyz23456789'; const b = crypto
 let sess = store.get('sutda-sess');
 let user = null;           // 로그인한 내 정보
 let pendingJoin = null;    // 로그인 후 들어갈 방
+let myReq = null;          // 대기 중인 내 칩 충전 요청 {amount}
 
 // ───────── 상태 ─────────
 let code = null, es = null, PS = null, psAt = 0, inGame = false;
@@ -64,7 +65,7 @@ async function refreshMe(){
   if (!sess) return null;
   const r = await api({ t: 'me' }, true);
   if (!r.ok) { if (r.status === 401) setLoggedOut(); return null; }
-  user = r.user; renderEntry(); return r;
+  user = r.user; myReq = r.req || null; renderEntry(); return r;
 }
 function renderEntry(){
   const li = !!(sess && user);
@@ -75,9 +76,11 @@ function renderEntry(){
   if (li) {
     const rate = user.hands ? Math.round(user.wins / user.hands * 100) : 0;
     pb.innerHTML = `<div class="prof"><div class="who"><b>${esc(user.nick)}</b> <span class="muted">@${esc(user.username)}</span>
-        <div class="stats"><span>칩 <b>${won(user.chips)}</b></span><span>${won(user.hands)}판 ${won(user.wins)}승 (${rate}%)</span><span>최고 <b>${won(user.best)}</b></span></div></div>
-      <div class="row" style="flex:0 0 auto">${user.admin ? '<a class="hbtn" href="/admin" style="text-decoration:none;color:var(--red);font-weight:700">관리자</a>' : ''}<button class="hbtn" id="btnNick">닉네임 변경</button><button class="hbtn" id="btnLogout">로그아웃</button></div></div>`;
+        <div class="stats"><span>칩 <b>${won(user.chips)}</b></span><span>${won(user.hands)}판 ${won(user.wins)}승 (${rate}%)</span><span>최고 <b>${won(user.best)}</b></span></div>
+        ${myReq ? `<div class="reqline">칩 ${won(myReq.amount)} 충전 요청을 관리자가 확인하고 있어요</div>` : ''}</div>
+      <div class="row" style="flex:0 0 auto">${user.admin ? '<a class="hbtn" href="/admin" style="text-decoration:none;color:var(--red);font-weight:700">관리자</a>' : ''}<button class="hbtn" id="btnChip">${myReq ? '충전 대기 중' : '칩 충전'}</button><button class="hbtn" id="btnNick">닉네임 변경</button><button class="hbtn" id="btnLogout">로그아웃</button></div></div>`;
     $('#btnLogout').onclick = async () => { await api({ t: 'logout' }, true); setLoggedOut(); };
+    $('#btnChip').onclick = openChipModal;
     $('#btnNick').onclick = () => {
       openModal(`<h2>닉네임 변경</h2><input id="nNick" class="inp" maxlength="10" value="${esc(user.nick)}"><div class="row" style="margin-top:14px"><button class="btn" data-close>취소</button><button class="btn gold" id="nOk">변경</button></div>`);
       $('#nOk').onclick = async () => { const v = $('#nNick').value.trim(); if (!v) return; const r = await api({ t: 'nick', nick: v }); if (r.ok) { closeModal(); refreshMe(); } };
@@ -166,6 +169,12 @@ function openStream(){
   });
   es.addEventListener('ch', e => { try { const d = JSON.parse(e.data); chatLines.push({ nm: d.nm, x: d.x }); if (chatLines.length > 60) chatLines.shift(); renderLog(); } catch(err){} });
   es.addEventListener('kick', () => { toast('방에서 내보내졌어요'); leaveGame(true); });
+  es.addEventListener('chip', e => {
+    let d; try { d = JSON.parse(e.data); } catch(err){ return; }
+    myReq = null;
+    if (d.status === 'approved') toast(d.later ? `칩 ${won(d.amount)} 충전이 승인됐어요. 이번 판이 끝나면 들어와요` : `칩 ${won(d.amount)} 충전이 승인됐어요!`);
+    else toast('칩 충전 요청이 거절됐어요');
+  });
   es.addEventListener('closed', () => { toast('관리자가 방을 닫았어요'); leaveGame(true); });
   es.onerror = async () => {
     netState(false);
@@ -192,7 +201,7 @@ $('#btnCopy').onclick = async () => {
   const link = location.origin + location.pathname + '#' + code;
   try { await navigator.clipboard.writeText(link); toast('초대 링크를 복사했어요'); } catch(e){ toast(link); }
 };
-$('#btnRebuy').onclick = () => api({ t: 'rebuy' });
+$('#btnRebuy').onclick = openChipModal;
 $('#btnRanks').onclick = showRanks;
 const soundBtn = () => { $('#btnSound').textContent = FX.muted() ? '🔇' : '🔊'; };
 $('#btnSound').onclick = () => { FX.setMuted(!FX.muted()); soundBtn(); };
@@ -254,6 +263,8 @@ function render(){
   if (!inGame) return;
   const s = PS;
   const myId = s ? s.you : null;
+  if (s) myReq = s.req || null;
+  $('#btnRebuy').textContent = myReq ? '충전 대기 중' : '칩 충전';
   renderHostbar();
   if (!s) {
     $('#seats').innerHTML = ''; $('#bets').innerHTML = '';
@@ -374,7 +385,7 @@ function render(){
     else if (mine && mine.length === 1) { const k = Sutda.card(mine[0]); hn = `${k.m}월${k.kind === 'gwang' ? ' 광' : ''}`; }
     if (h && [0, 1].some(k => pendingCards.has(`${handKey}:${myId}:${k}`))) hn = ''; // 카드가 도착한 뒤에 족보 공개
     let status = '';
-    if (!inHand(myId)) status = mp.chips <= 0 ? '칩이 없어요 — 위의 [칩 충전]' : (ph === 'bet' ? '다음 판부터 참여해요' : '');
+    if (!inHand(myId)) status = mp.chips <= 0 ? (myReq ? '칩 충전 승인을 기다리는 중' : '칩이 없어요 — 위의 [칩 충전]으로 요청하세요') : (ph === 'bet' ? '다음 판부터 참여해요' : '');
     else if (folded(myId)) status = '다이했어요';
     else if (allin(myId)) status = '올인!';
     else if (myTurn) status = '<b style="color:var(--red)">내 차례</b>';
@@ -495,6 +506,39 @@ document.addEventListener('click', e => {
   const kk = e.target.closest('[data-kick]');
   if (kk) api({ t: 'kick', target: kk.dataset.kick });
 });
+
+// ───────── 칩 충전 요청 ─────────
+const REQ_AMOUNTS = [10000, 30000, 50000, 100000];
+function openChipModal(){
+  if (!user) return toast('먼저 로그인하세요');
+  if (myReq) {
+    openModal(`<h2>칩 충전 요청</h2><p>칩 <b>${won(myReq.amount)}</b> 충전 요청을 관리자가 확인하고 있어요.<br><span class="muted">승인되면 바로 알려드려요.</span></p>
+      <div class="row"><button class="btn" data-close>닫기</button><button class="btn red" id="crCancel">요청 취소</button></div>`);
+    $('#crCancel').onclick = async () => {
+      const r = await api({ t: 'chipCancel' });
+      if (r.ok || r.status === 404) { myReq = null; closeModal(); toast('충전 요청을 취소했어요'); renderEntry(); render(); }
+    };
+    return;
+  }
+  openModal(`<h2>칩 충전 요청</h2>
+    <p class="muted" style="margin-top:0">관리자가 승인하면 칩이 들어와요. 게임 중이면 그 판이 끝난 뒤에 들어와요.</p>
+    <div class="amts">${REQ_AMOUNTS.map((a, i) => `<label class="amt"><input type="radio" name="amt" value="${a}" ${i === 0 ? 'checked' : ''}><span>${won(a)}</span></label>`).join('')}</div>
+    <input id="crNote" class="inp" maxlength="40" placeholder="관리자에게 한마디 (선택)">
+    <div class="row" style="margin-top:14px"><button class="btn" data-close>취소</button><button class="btn gold" id="crSend">요청 보내기</button></div>`);
+  $('#crSend').onclick = async () => {
+    const amount = Number(document.querySelector('input[name=amt]:checked').value);
+    $('#crSend').disabled = true;
+    const r = await api({ t: 'chipReq', amount, note: $('#crNote').value.trim() });
+    $('#crSend').disabled = false;
+    if (r.ok) { myReq = { amount }; closeModal(); toast('충전 요청을 보냈어요. 관리자가 확인하면 알려드려요'); renderEntry(); render(); }
+  };
+}
+// 입장 화면에 있을 때는 대기 중인 요청이 처리됐는지 가끔 확인
+setInterval(async () => {
+  if (inGame || !user || !myReq) return;
+  const before = user.chips, r = await refreshMe();
+  if (r && !r.req) toast(user.chips > before ? `칩 충전이 승인됐어요! (+${won(user.chips - before)})` : '칩 충전 요청이 처리됐어요');
+}, 12000);
 
 // ───────── 모달 / 토스트 ─────────
 function openModal(html){ $('#modalBox').innerHTML = html; $('#modal').classList.remove('hidden'); }
