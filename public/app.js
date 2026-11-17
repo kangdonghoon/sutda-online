@@ -170,6 +170,7 @@ async function joinTable(c){
   if (!r.seated) toast('자리가 꽉 차서 관전으로 들어왔어요');
   openStream();
   render();
+  setHdrH();
 }
 function openStream(){
   if (es) es.close();
@@ -218,7 +219,8 @@ $('#btnRanks').onclick = showRanks;
 const soundBtn = () => { $('#btnSound').textContent = FX.muted() ? '🔇' : '🔊'; };
 $('#btnSound').onclick = () => { FX.setMuted(!FX.muted()); soundBtn(); };
 soundBtn();
-window.addEventListener('resize', () => { if (inGame) render(); });
+const setHdrH = () => { const hd = document.querySelector('#game header'); if (hd && hd.offsetHeight) document.documentElement.style.setProperty('--hdrH', hd.offsetHeight + 'px'); };
+window.addEventListener('resize', () => { setHdrH(); if (inGame) render(); });
 window.addEventListener('hashchange', () => { if (!inGame) showInvite(); });
 
 // 채팅
@@ -263,8 +265,11 @@ function resetFx(){ seenCards.clear(); pendingCards.clear(); firstSeen.clear(); 
 const ACT_LABEL = { die: '다이', check: '체크', call: '콜', bbing: '삥', half: '하프', ddadang: '따당' };
 function seatLayout(n){
   const wrap = $('#tableWrap'), W = wrap.clientWidth || 800;
-  const seatW = matchMedia('(max-width:860px)').matches ? 100 : 132;
-  const rx = Math.min(43, 50 - (seatW / 2 + 6) / W * 100), ry = 33;
+  // 좌석 폭·세로 반지름은 CSS 변수로 (PC / 세로 폰 / 가로 폰마다 다름)
+  const cs = getComputedStyle(document.documentElement);
+  const seatW = parseFloat(cs.getPropertyValue('--seatW')) || 132;
+  const ry = parseFloat(cs.getPropertyValue('--seatRy')) || 33;
+  const rx = Math.min(43, 50 - (seatW / 2 + 6) / W * 100);
   return Array.from({ length: n }, (_, i) => {
     const a = (150 + 240 * (i + .5) / n) * Math.PI / 180;
     return { x: 50 + rx * Math.cos(a), y: 49 + ry * Math.sin(a) };

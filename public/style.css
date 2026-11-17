@@ -8,6 +8,7 @@
   --line:rgba(42,31,22,.18); --shadow:0 2px 0 rgba(42,31,22,.25),0 8px 18px rgba(60,30,5,.25);
   --win:#ffcf4d; --bad:#b3261e; --ok:#2f6b3a;
   --serif:"Song Myung","Nanum Myeongjo",serif;
+  --seatW:132; --seatRy:33;
   --sans:"Gowun Dodum","Noto Sans KR",system-ui,sans-serif;
 }
 *{box-sizing:border-box}
@@ -259,6 +260,7 @@ aside h4{margin:0;padding:12px 14px 6px;font-size:14px;color:var(--red2);font-fa
   .col{width:17px}.chip{width:17px;height:6px}
   .bet span{font-size:10px}
   .blanket{inset:11% 4% 6%}
+  :root{--seatW:100}
   .seat{width:100px}
   .seat .cards{height:44px}
   .seat .hw{width:27px;height:44px}
@@ -274,4 +276,80 @@ aside h4{margin:0;padding:12px 14px 6px;font-size:14px;color:var(--red2);font-fa
   .hw.lg{width:70px;height:112px}
   #actions{min-width:0;width:100%}
   #entry h1{font-size:68px}
+}
+
+/* ───────── 휴대폰 가로 ───────── */
+@media (orientation:landscape) and (max-height:520px){
+  :root{--seatW:128;--seatRy:31}
+  html,body{height:100%;overflow:hidden}
+  #game{grid-template-columns:minmax(0,1fr) 210px;grid-template-rows:auto minmax(0,1fr);height:100vh;height:100dvh;min-height:0}
+  header{padding:3px 8px;gap:6px}
+  header .logo{font-size:18px;margin-right:0}
+  header .muted{display:none}
+  .code{padding:1px 6px;font-size:12px}
+  .hbtn{padding:3px 8px;font-size:12px}
+  .chip-s{font-size:10px;padding:1px 6px}
+  #main{padding:4px 6px 6px;gap:4px;min-height:0;overflow:hidden}
+  /* 방장 바는 오른쪽 열(채팅 위)로 */
+  #hostbar{position:fixed;top:var(--hdrH,34px);right:0;width:210px;z-index:6;padding:5px 6px;gap:4px 5px;border-radius:0;border-width:0 0 1px 1px;box-shadow:none}
+  #game:has(#hostbar:not(.hidden)) aside{padding-top:62px}
+  #hostbar .lbl{font-size:13px}
+  #hostbar .btn{padding:4px 10px;font-size:12px;box-shadow:0 1px 0 rgba(42,31,22,.3)}
+  #hostbar .muted{display:none}
+  #hostbar label.chk{font-size:11px}
+  #tableWrap{flex:1;height:auto;min-height:0}
+  .blanket{inset:6% 3% 4%;border-radius:18px}
+  .blanket::before{inset:7px;border-radius:12px}
+  /* 좌석: 카드와 이름표를 옆으로 나란히 */
+  .seat{width:128px;flex-direction:row;align-items:center;gap:3px}
+  .seat .cards{height:38px;order:2;gap:2px}
+  .seat .hw{width:24px;height:38px}
+  .seat .plate{width:auto;flex:1;min-width:0;padding:2px 6px 2px 2px;gap:4px}
+  .ava{width:24px;height:24px;font-size:12px}
+  .plate .nm{font-size:11px}
+  .plate .ch{font-size:10px}
+  .seat .st{position:absolute;top:100%;left:0;right:0;min-height:0;font-size:10px}
+  .seat .hn{font-size:12px;padding:0 5px}
+  .seat .tags{bottom:-7px}
+  .tag{font-size:9px;padding:0 4px}
+  .bubble{top:-22px;font-size:10px;padding:2px 7px}
+  .seat .x{top:-8px;left:-8px;width:18px;height:18px;font-size:9px}
+  #center{gap:2px;width:44%}
+  .deck{display:none}
+  .pot .amt{font-size:20px}
+  .pot small{font-size:9px}
+  .banner{font-size:11px;max-width:300px}
+  .banner .big{font-size:16px}
+  .seal{font-size:15px;padding:0 8px 2px}
+  .col{width:15px}.chip{width:15px;height:5px;margin-top:-2px}
+  .bet span{font-size:9px}
+  /* 내 자리: 한 줄 */
+  #me{padding:5px 8px;gap:8px;flex-wrap:nowrap;border-radius:6px}
+  #me .mycards{min-height:0;gap:5px}
+  .hw.lg{width:40px;height:64px;border-radius:5px}
+  #me .info{min-width:118px;flex:1;gap:0}
+  #me .meRow{gap:6px;min-width:0}
+  #me .meRow>div:last-child{min-width:0}
+  #me .meRow .ava{width:26px;height:26px;font-size:13px;flex:none}
+  #me .myname,#me .mychips{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #me .myname{font-size:13px}
+  #me .mychips{font-size:11px}
+  #me .myhand{font-size:18px;min-height:0;line-height:1.2}
+  .timer{margin-top:3px}
+  #actions{grid-template-columns:repeat(6,minmax(42px,1fr));min-width:0;width:auto;flex:0 1 310px;gap:4px}
+  .act{padding:5px 2px;font-size:14px;box-shadow:0 2px 0 rgba(42,31,22,.35)}
+  .act small{font-size:9px;margin-top:1px}
+  .rjbox{grid-template-columns:1fr 1fr}
+  .rjq{font-size:12px}
+  /* 채팅: 오른쪽 */
+  aside{grid-column:2;grid-row:2;border-width:0 0 0 1px;max-height:none;min-height:0}
+  aside h4{padding:6px 10px 2px;font-size:12px}
+  #log{padding:0 10px 6px;font-size:11px;line-height:1.55;min-height:0}
+  .emotes{padding:0 6px 4px;gap:3px;flex-wrap:nowrap;overflow-x:auto}
+  .emotes button{font-size:10px;padding:2px 6px;flex:none}
+  #chatForm{padding:5px;gap:4px}
+  #chatForm input{padding:6px 8px;font-size:12px}
+  #chatForm .btn{padding:6px 8px;font-size:12px}
+  .credit{font-size:9px;margin:2px 0 0}
+  .modal .box{max-height:92vh;padding:14px}
 }
