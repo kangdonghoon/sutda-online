@@ -484,7 +484,7 @@ const server = http.createServer(async (req, res) => {
       });
       return;
     }
-    if (req.method === 'GET') return serveStatic(req, res, url.pathname);
+    if (req.method === 'GET' || req.method === 'HEAD') return serveStatic(req, res, url.pathname);
     res.writeHead(405); res.end();
   } catch (e) {
     console.error(e);

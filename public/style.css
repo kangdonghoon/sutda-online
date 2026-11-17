@@ -173,6 +173,7 @@ header .sp{flex:1}
 /* 화투 카드 */
 .hw{position:relative;width:36px;height:58px;flex:none;border-radius:4px;filter:drop-shadow(0 2px 2px rgba(0,0,0,.45))}
 .hw .hwsvg{display:block;width:100%;height:100%}
+.hw img.hwsvg{border-radius:inherit;object-fit:cover}
 .hw.lg{width:86px;height:138px;border-radius:8px;filter:drop-shadow(0 5px 8px rgba(0,0,0,.4))}
 .hw.incoming{opacity:0}
 .hw.flip{animation:flipIn .6s ease-out both}
