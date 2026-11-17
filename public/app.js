@@ -89,10 +89,29 @@ function renderEntry(){
 }
 
 // ───────── 방 만들기 / 목록 ─────────
-async function create(solo){
+// 방 규칙은 방을 만들 때 정하고, 그 방에서는 바꿀 수 없음
+const ANTES = [100, 500, 1000, 5000];
+const ruleText = r => `판돈 ${won(r.ante)} · ${r.mode === 'two' ? '두 장 받고 한 번 베팅' : '한 장씩 두 번 베팅'} · 땡값 ${r.tg ? '있음' : '없음'}`;
+function create(solo){
   if (!user) return toast('먼저 로그인하세요');
-  const r = await api({ t: 'create', solo: !!solo });
-  if (r.ok) joinTable(r.code);
+  const last = Object.assign({ ante: 100, mode: 'one', ttaeng: true }, store.get('sutda-rules') || {});
+  const pill = (name, val, label, on) => `<label class="pill"><input type="radio" name="${name}" value="${val}" ${on ? 'checked' : ''}><span>${label}</span></label>`;
+  openModal(`<h2>${solo ? '봇이랑 연습' : '방 만들기'}</h2>
+    <div class="opt"><div class="olbl">판돈</div><div class="seg">${ANTES.map(a => pill('rAnte', a, won(a), last.ante === a)).join('')}</div></div>
+    <div class="opt"><div class="olbl">진행 방식</div><div class="seg">${pill('rMode', 'one', '한 장씩 · 2번 베팅', last.mode !== 'two')}${pill('rMode', 'two', '두 장 받고 · 1번 베팅', last.mode === 'two')}</div></div>
+    <div class="opt"><div class="olbl">땡값</div><div class="seg">${pill('rTg', '1', '있음', last.ttaeng)}${pill('rTg', '0', '없음', !last.ttaeng)}</div>
+      <div class="muted" style="margin-top:6px">장땡 판돈 100% · 13·18광땡 150% · 38광땡 200% (끝까지 남은 사람만 냄)</div></div>
+    <p class="muted">방을 만든 뒤에는 규칙을 바꿀 수 없어요.</p>
+    <div class="row"><button class="btn" data-close>취소</button><button class="btn gold" id="rOk">${solo ? '연습 시작' : '방 만들기'}</button></div>`);
+  $('#rOk').onclick = async () => {
+    const val = n => document.querySelector(`input[name=${n}]:checked`).value;
+    const rules = { ante: Number(val('rAnte')), mode: val('rMode'), ttaeng: val('rTg') === '1' };
+    store.set('sutda-rules', rules);
+    $('#rOk').disabled = true;
+    const r = await api(Object.assign({ t: 'create', solo: !!solo }, rules));
+    $('#rOk').disabled = false;
+    if (r.ok) { closeModal(); joinTable(r.code); }
+  };
 }
 $('#btnCreate').onclick = () => create(false);
 $('#btnSolo').onclick = () => create(true);
@@ -107,7 +126,8 @@ async function loadTables(){
     const t = $('#tables');
     if (!list.length) { t.innerHTML = '<div class="muted">지금 열린 방이 없어요.</div>'; return; }
     t.innerHTML = list.map(r => `<div class="tbl-item"><div><b>${esc(r.host)}</b>의 방 <span class="code" style="font-size:12px">${esc(r.code.toUpperCase())}</span>
-      <div class="muted">${Number(r.n)||0}명 · ${r.st === 'bet' ? '게임 중' : '대기 중'}</div></div>
+      <div class="muted">${Number(r.n)||0}명 · ${r.st === 'bet' ? '게임 중' : '대기 중'}</div>
+      <div class="muted">${ruleText({ ante: Number(r.ante) || 100, mode: r.mode, tg: r.tg })}</div></div>
       <button class="btn gold" data-join="${esc(r.code)}">입장</button></div>`).join('');
   } catch(e){ $('#tables').innerHTML = '<div class="muted">서버에 연결할 수 없어요.</div>'; }
 }
@@ -468,22 +488,18 @@ function renderHostbar(){
   if (!s || s.host !== s.you) { hb.classList.add('hidden'); hb.dataset.sig = ''; return; }
   hb.classList.remove('hidden');
   const redealPending = s.ph === 'show' && s.h && s.h.res && s.h.res.type === 'redeal';
-  const sig = [s.ph, s.ante, s.auto, s.pl.length, s.canStart, redealPending, s.mode, s.tg].join('|');
+  const sig = [s.ph, s.auto, s.pl.length, s.canStart, redealPending].join('|');
   if (hb.dataset.sig === sig) return; hb.dataset.sig = sig;
   const betting = s.ph === 'bet';
   hb.innerHTML = `<span class="lbl">방장</span>
     <button class="btn gold" id="hbStart" ${betting || redealPending || !s.canStart ? 'disabled' : ''}>${s.ph === 'show' ? '다음 판' : '게임 시작'}</button>
     <button class="btn" id="hbBot" ${s.pl.length >= Sutda.MAX_PLAYERS ? 'disabled' : ''}>봇 추가</button>
-    <select id="hbAnte" ${betting ? 'disabled' : ''} title="판돈">${[100, 500, 1000, 5000].map(a => `<option value="${a}" ${s.ante === a ? 'selected' : ''}>판돈 ${won(a)}</option>`).join('')}</select>
-    <select id="hbMode" title="진행 방식"><option value="one" ${s.mode !== 'two' ? 'selected' : ''}>한 장씩 · 2번 베팅</option><option value="two" ${s.mode === 'two' ? 'selected' : ''}>두 장 받고 · 1번 베팅</option></select>
-    <label class="chk"><input type="checkbox" id="hbTg" ${s.tg ? 'checked' : ''}> 땡값</label>
+    <span class="muted" style="margin-left:4px">${ruleText(s)}</span>
     <label class="chk"><input type="checkbox" id="hbAuto" ${s.auto ? 'checked' : ''}> 자동으로 다음 판</label>`;
   $('#hbStart').onclick = () => api({ t: 'start' });
   $('#hbBot').onclick = () => api({ t: 'bot' });
-  $('#hbAnte').onchange = e => api({ t: 'ante', ante: Number(e.target.value) });
   $('#hbAuto').onchange = e => api({ t: 'auto', on: e.target.checked });
-  $('#hbMode').onchange = e => api({ t: 'mode', mode: e.target.value });
-  $('#hbTg').onchange = e => api({ t: 'ttaeng', on: e.target.checked });
+
 }
 function renderLog(){
   if (!inGame) return;
@@ -575,7 +591,7 @@ function showRanks(){
   const A = [['삥', '첫 베팅을 판돈만큼'], ['하프', '콜하고 판 전체의 절반만큼 더'], ['따당', '앞 사람 베팅의 두 배로'], ['콜 / 체크', '맞추기 / 그냥 넘기기'], ['다이', '포기']];
   openModal(`<h2>족보</h2><table class="rank-t">${R.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join('')}</table>
     <h2 style="margin-top:18px">베팅</h2><table class="rank-t">${A.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join('')}</table>
-    <h2 style="margin-top:18px">진행 방식 · 땡값 <span class="muted" style="font-size:13px">방장이 정해요</span></h2><table class="rank-t">${X.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join('')}</table>
+    <h2 style="margin-top:18px">진행 방식 · 땡값 <span class="muted" style="font-size:13px">방 만들 때 정해요</span></h2><table class="rank-t">${X.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join('')}</table>
     <p class="muted">같은 족보면 판돈을 나눠요. 올인한 사람은 자기가 건 만큼만 먹어요(사이드팟).</p>
     <div style="text-align:right"><button class="btn gold" data-close>닫기</button></div>`);
 }

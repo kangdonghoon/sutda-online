@@ -77,10 +77,20 @@ setInterval(() => store.purgeSessions().catch(dbErr), 6 * 3600 * 1000);
 // ───────── 방 ─────────
 const rooms = new Map();
 const userRoom = new Map(); // uid → 방 코드 (한 계정은 한 방에만)
-function createRoom(hostId) {
+const ANTES = [100, 500, 1000, 5000];
+function roomRules(body) {
+  const ante = Number(body && body.ante);
+  return {
+    ante: ANTES.includes(ante) ? ante : 100,
+    mode: body && body.mode === 'two' ? 'two' : 'one',
+    ttaeng: body && body.ttaeng === false ? 0 : 1,
+  };
+}
+function createRoom(hostId, rules) {
+  rules = rules || roomRules({});
   let code; do code = rid(4); while (rooms.has(code));
   const room = {
-    code, G: Sutda.createGame({ ante: 100, startChips: START_CHIPS, rake: Object.assign({}, RAKE), mode: 'one', ttaeng: 1 }), host: hostId,
+    code, G: Sutda.createGame({ ante: rules.ante, startChips: START_CHIPS, rake: Object.assign({}, RAKE), mode: rules.mode, ttaeng: rules.ttaeng }), host: hostId,
     autoNext: true, banned: new Set(), conns: new Map(), lastSeen: new Map(),
     lastActive: Date.now(), botKey: '', botDue: 0, showKey: '', showDue: 0, dirty: false, savedKey: '', leaving: new Set(), credits: new Map(),
   };
@@ -305,8 +315,10 @@ async function handle(body, ip) {
     }
     case 'create': {
       const err = leaveOtherRoom(u.id, null); if (err) return [409, { error: err }];
-      const room = createRoom(myId);
+      const rules = roomRules(body);
+      const room = createRoom(myId, rules);
       await seat(room, u);
+      room.G.log.push(`방 규칙: 판돈 ${rules.ante.toLocaleString()} · ${rules.mode === 'two' ? '두 장 받고 한 번 베팅' : '한 장씩 두 번 베팅'} · 땡값 ${rules.ttaeng ? '있음' : '없음'}`);
       if (body.solo) { addBot(room); addBot(room); }
       log('room', room.code, 'by', u.username);
       return [200, { code: room.code }];
@@ -385,22 +397,7 @@ async function handle(body, ip) {
       if (tu) { room.banned.add(tu); dropConns(room, target.id, 'kick'); }
       return ok();
     }
-    case 'ante': {
-      const a = Number(body.ante);
-      if (![100, 500, 1000, 5000].includes(a) || G.phase === 'bet') return [400, { error: '판돈을 바꿀 수 없어요' }];
-      G.ante = a; G.log.push(`판돈 ${a.toLocaleString()}로 변경`); G.v++; return ok();
-    }
     case 'auto': room.autoNext = !!body.on; G.v++; return ok();
-    case 'mode': {
-      const m = body.mode === 'two' ? 'two' : 'one';
-      if (G.mode !== m) { G.mode = m; G.log.push(`진행 방식: ${m === 'two' ? '두 장 받고 한 번 베팅' : '한 장씩 받고 두 번 베팅'}${G.phase === 'bet' ? ' — 다음 판부터' : ''}`); G.v++; }
-      return ok();
-    }
-    case 'ttaeng': {
-      const t = body.on ? 1 : 0;
-      if (G.ttaeng !== t) { G.ttaeng = t; G.log.push(`땡값 ${t ? '켬' : '끔'}${G.phase === 'bet' ? ' — 다음 판부터' : ''}`); G.v++; }
-      return ok();
-    }
   }
   return [400, { error: 'unknown' }];
 }
@@ -573,7 +570,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/api/rooms') {
       const list = [...rooms.values()]
         .filter(r => [...r.conns.values()].some(s => s.size))
-        .map(r => { const h = player(r, r.host); return { code: r.code, host: h ? h.name : '', n: r.G.players.length, st: r.G.phase }; })
+        .map(r => { const h = player(r, r.host); return { code: r.code, host: h ? h.name : '', n: r.G.players.length, st: r.G.phase, ante: r.G.ante, mode: r.G.mode, tg: r.G.ttaeng }; })
         .slice(0, 20);
       return json(res, 200, list);
     }
