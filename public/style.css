@@ -77,6 +77,8 @@ a{color:var(--red)}
 .stats{display:flex;gap:14px;margin-top:6px;font-size:13px;color:var(--ink2);flex-wrap:wrap}
 .stats b{color:var(--red2);font-size:15px}
 .stats span,.prof .hbtn{white-space:nowrap}
+.held{display:inline-block;padding:0 7px;border-radius:99px;background:rgba(178,34,34,.12);color:var(--red2);font-size:.92em;white-space:nowrap}
+.stats .held{font-size:12px;line-height:20px}
 .prof .row>*{flex:0 0 auto}
 .code{font-family:ui-monospace,Menlo,monospace;background:var(--ink);color:var(--gold2);padding:3px 9px;border-radius:3px;letter-spacing:.15em;font-weight:700}
 

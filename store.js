@@ -10,6 +10,7 @@ function mapReq(r) {
     createdAt: Number(r.created_at), decidedAt: r.decided_at == null ? null : Number(r.decided_at), decidedBy: r.decided_by || null,
     granted: r.granted == null ? null : Number(r.granted), username: r.username, nick: r.nick,
     userChips: r.user_chips == null ? undefined : Number(r.user_chips),
+    held: r.held == null ? null : Number(r.held),
   };
 }
 function mapUser(r) {
@@ -84,6 +85,7 @@ class PgStore {
     // 칩 반납 요청 (kind = 'return')
     await this.q(`ALTER TABLE chip_requests ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'charge'`);
     await this.q(`ALTER TABLE users ADD COLUMN IF NOT EXISTS returned BIGINT NOT NULL DEFAULT 0`);
+    await this.q(`ALTER TABLE chip_requests ADD COLUMN IF NOT EXISTS held BIGINT`); // 반납 요청으로 떼어 둔 칩 (null: 아직 안 뗌)
   }
   // 요청 만들기. 이미 대기 중인 요청이 있으면 null
   async createChipRequest(userId, amount, note, kind) {
@@ -115,11 +117,10 @@ class PgStore {
     if (chips == null) await this.q(`UPDATE users SET chips = chips + $2, rebuys = rebuys + 1, bought = bought + $2 WHERE id = $1`, [userId, amount]);
     else await this.q(`UPDATE users SET chips = $3, rebuys = rebuys + 1, bought = bought + $2 WHERE id = $1`, [userId, amount, chips]);
   }
-  // 승인된 반납: chips가 숫자면 그 값으로, null이면 기존 칩에서 뺌 (0 아래로는 안 내려감)
-  async takeChips(userId, amount, chips) {
-    if (chips == null) await this.q(`UPDATE users SET chips = GREATEST(chips - $2, 0), returned = returned + $2 WHERE id = $1`, [userId, amount]);
-    else await this.q(`UPDATE users SET chips = $3, returned = returned + $2 WHERE id = $1`, [userId, amount, chips]);
-  }
+  // 칩 더하기/빼기 (0 아래로는 안 내려감)
+  async adjustChips(userId, delta) { await this.q(`UPDATE users SET chips = GREATEST(chips + $2, 0) WHERE id = $1`, [userId, delta]); }
+  async addReturned(userId, amount) { await this.q(`UPDATE users SET returned = returned + $2 WHERE id = $1`, [userId, amount]); }
+  async setRequestHeld(id, held) { await this.q(`UPDATE chip_requests SET held = $2 WHERE id = $1`, [id, held]); }
   async getSetting(key) { const r = await this.q(`SELECT value FROM settings WHERE key = $1`, [key]); return r.rows[0] ? r.rows[0].value : null; }
   async setSetting(key, value) {
     await this.q(`INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [key, value]);
@@ -213,7 +214,7 @@ class MemStore {
   async setChips(id, chips) { const u = this.users.get(id); if (u) { u.chips = chips; u.lastSeen = Date.now(); } }
   async createChipRequest(userId, amount, note, kind) {
     if (this.reqs.some(r => r.userId === userId && r.status === 'pending')) return null;
-    const r = { id: ++this.reqSeq, userId, amount, kind: kind === 'return' ? 'return' : 'charge', note: note || '', status: 'pending', createdAt: Date.now(), decidedAt: null, decidedBy: null, granted: null };
+    const r = { id: ++this.reqSeq, userId, amount, kind: kind === 'return' ? 'return' : 'charge', held: null, note: note || '', status: 'pending', createdAt: Date.now(), decidedAt: null, decidedBy: null, granted: null };
     this.reqs.push(r); return this.withUser(r);
   }
   withUser(r, chips) { const u = this.users.get(r.userId) || {}; return Object.assign({}, r, { username: u.username, nick: u.nick }, chips ? { userChips: u.chips } : {}); }
@@ -228,7 +229,9 @@ class MemStore {
     Object.assign(r, { status: 'canceled', decidedAt: Date.now(), decidedBy: 'self' }); return this.withUser(r);
   }
   async grantChips(id, amount, chips) { const u = this.users.get(id); if (!u) return; u.chips = chips == null ? u.chips + amount : chips; u.rebuys++; u.bought += amount; }
-  async takeChips(id, amount, chips) { const u = this.users.get(id); if (!u) return; u.chips = chips == null ? Math.max(0, u.chips - amount) : chips; u.returned += amount; }
+  async adjustChips(id, delta) { const u = this.users.get(id); if (u) u.chips = Math.max(0, u.chips + delta); }
+  async addReturned(id, amount) { const u = this.users.get(id); if (u) u.returned += amount; }
+  async setRequestHeld(id, held) { const r = this.reqs.find(x => x.id === Number(id)); if (r) r.held = held; }
   async setBanned(id, b) { const u = this.users.get(id); if (u) u.banned = !!b; }
   async setNick(id, nick) { const u = this.users.get(id); if (u) u.nick = nick; }
   async touch(id) { const u = this.users.get(id); if (u) u.lastSeen = Date.now(); }

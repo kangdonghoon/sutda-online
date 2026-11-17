@@ -152,16 +152,16 @@ async function loadReqs(force){
     document.title = (n ? `(${n}) ` : '') + '섯다 관리자';
     $('#reqCount').innerHTML = n ? `<span class="tag bad" style="font-size:13px">${n}건 대기</span>` : '';
     // 입력 중인 금액이 지워지지 않게, 목록이 바뀔 때만 다시 그림
-    const sig = r.pending.map(q => q.id + ':' + q.kind + ':' + q.chips + ':' + q.inHand).join(',');
+    const sig = r.pending.map(q => q.id + ':' + q.kind + ':' + q.chips + ':' + q.held + ':' + q.inHand).join(',');
     if (force || sig !== reqSig) {
       reqSig = sig;
       $('#reqs').innerHTML = r.pending.map(q => `<tr data-id="${q.id}">
-        <td>${kindTag(q.kind)} <b>${esc(q.nick)}</b> <span class="muted">@${esc(q.username)}</span>${q.room ? ` <span class="code">${esc(q.room.toUpperCase())}</span>` : ''}${q.inHand ? `<span class="tag gold">${q.kind === 'return' ? '게임 중 · 판 끝나고 승인 가능' : '게임 중 · 판 끝나면 지급'}</span>` : ''}</td>
-        <td class="r">${won(q.chips)}</td><td class="r">${q.kind === 'return' ? '−' : '+'}${won(q.amount)}</td>
+        <td>${kindTag(q.kind)} <b>${esc(q.nick)}</b> <span class="muted">@${esc(q.username)}</span>${q.room ? ` <span class="code">${esc(q.room.toUpperCase())}</span>` : ''}${q.inHand ? `<span class="tag gold">${q.kind === 'return' ? (q.held == null ? '게임 중 · 판 끝나면 칩을 떼어 둠' : '게임 중') : '게임 중 · 판 끝나면 지급'}</span>` : ''}</td>
+        <td class="r">${won(q.chips)}${q.kind === 'return' && q.held != null ? `<div class="muted">떼어 둔 칩 ${won(q.held)}</div>` : ''}</td><td class="r">${q.kind === 'return' ? '−' : '+'}${won(q.amount)}</td>
         <td>${q.note ? esc(q.note) : '<span class="muted">-</span>'}</td>
         <td class="muted">${ago(q.createdAt)}</td>
-        <td><input class="inp reqIn" value="${q.kind === 'return' ? Math.min(q.amount, q.chips) : q.amount}" inputmode="numeric"></td>
-        <td style="white-space:nowrap"><button class="btn sm gold" data-r="approve" data-kind="${q.kind}" ${q.kind === 'return' && q.inHand ? 'disabled' : ''}>${q.kind === 'return' ? '회수' : '승인'}</button> <button class="btn sm red" data-r="reject">거절</button></td>
+        <td><input class="inp reqIn" value="${q.kind === 'return' ? (q.held != null ? q.held : q.amount) : q.amount}" inputmode="numeric"></td>
+        <td style="white-space:nowrap"><button class="btn sm gold" data-r="approve" data-kind="${q.kind}" ${q.kind === 'return' && q.held == null && q.inHand ? 'disabled' : ''}>${q.kind === 'return' ? '회수' : '승인'}</button> <button class="btn sm red" data-r="reject">거절</button></td>
       </tr>`).join('') || '<tr><td colspan="7" class="muted">기다리는 요청이 없어요</td></tr>';
     }
     const label = { approved: '승인', rejected: '거절', canceled: '본인 취소' };
