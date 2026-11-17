@@ -14,6 +14,9 @@ server.js            HTTP 서버 · 계정/세션 · 방 관리 · 게임 루프
 store.js             저장소 (DATABASE_URL 있으면 Postgres, 없으면 메모리)
 public/core.js       섯다 규칙 엔진 (서버·브라우저 공용)
 public/index.html    게임 화면
+public/style.css     테마 (장판·담요·한지)
+public/cards.js      화투 카드 SVG
+public/fx.js         연출 (카드·칩 날리기, 승리 효과, 효과음)
 public/app.js        게임 클라이언트
 public/admin.html    관리자 페이지
 test/                규칙 엔진·저장소 테스트
@@ -71,6 +74,17 @@ $env:DATABASE_URL="postgresql://..."; $env:ADMIN_USERS="donghun"; node server.js
 4. 방장이 **게임 시작**을 누르면 시작이에요. 사람이 모자라면 **봇 추가**로 채울 수 있어요.
 
 칩이 판돈보다 적어지면 **칩 충전**으로 다시 10,000을 받을 수 있어요. 충전 횟수는 랭킹 수익 계산에 반영돼요.
+
+## 카드 그림 바꾸기
+기본 카드는 `public/cards.js`에서 SVG로 그려요. 크기에 상관없이 선명해요.
+카드 이미지를 직접 쓰고 싶으면 `public/cards/` 폴더에 아래 이름으로 PNG 20장을 넣으면 자동으로 이미지로 바뀌어요.
+
+| 파일 | 카드 |
+|---|---|
+| `01-1.png` ~ `10-1.png` | 각 월의 광 또는 열끗 (1·3·8월은 광) |
+| `01-2.png` ~ `10-2.png` | 각 월의 띠 또는 피 |
+
+세로 5:8 비율에 가로 200px 이상을 권장해요. 직접 그렸거나 사용 허락이 확실한 이미지를 쓰세요.
 
 ## 동작 규칙
 - **칩 저장 시점**: 판이 끝날 때, 방에서 나갈 때, 충전할 때, 관리자가 수정할 때 저장돼요.
