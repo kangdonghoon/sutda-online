@@ -6,6 +6,7 @@
   const MAX_PLAYERS = 6;
   const MAX_RAISES = 4;       // 한 라운드 최대 레이즈 횟수
   const MAX_REDEALS = 3;
+  const MAX_TIES = 3;          // 동점 재경기 최대 횟수 (넘으면 나눠 가짐)
 
   // 카드: 0..19, 월 = (c>>1)+1, 짝수 = 특수패(1·3·8월은 광, 나머지는 열끗), 홀수 = 피
   function card(c) {
@@ -154,6 +155,7 @@
       rake: (opts && opts.rake) || null, rakeTotal: 0,
       mode: (opts && opts.mode === 'two') ? 'two' : 'one',   // one: 한 장씩 2번 베팅, two: 두 장 받고 1번 베팅
       ttaeng: (opts && opts.ttaeng) ? 1 : 0,                  // 땡값 켬(1) / 끔(0)
+      tie: (opts && opts.tie === 'split') ? 'split' : 'replay', // 최고 패 동점: 재경기 / 나눠 갖기
     };
   }
   function P(S, id) { return S.players.find(p => p.id === id); }
@@ -341,6 +343,11 @@
       S.phase = 'show';
       return;
     }
+    // 최고 패가 동점이면 동점자끼리 재경기
+    if (S.tie !== 'split' && (h.ties || 0) < MAX_TIES) {
+      const top = pickWinners(ids, h.cards);
+      if (top.winners.length > 1) return tieReplay(S, ids, top.winners, ev);
+    }
     const { pay: payMap, mainWinners, rake } = settle(h.contrib, ids, h.cards, rakeFor(h, false));
     const pw = pickWinners(ids, h.cards);
     Object.entries(payMap).forEach(([id, a]) => { P(S, id).chips += a; });
@@ -371,10 +378,34 @@
     S.phase = 'show';
   }
 
+  // 동점 재경기 준비: 동점자들이 받을 수 없는 초과 베팅(동점자 최대 기여액 위쪽)은 지금 정산하고,
+  // 동점보다 낮은 사람은 탈락시킨 뒤 판돈은 그대로 둔다
+  function tieReplay(S, ids, tied, ev) {
+    const h = S.hand;
+    const M = Math.max(...tied.map(id => h.contrib[id]));
+    const excess = {}; let ex = 0;
+    for (const id of Object.keys(h.contrib)) { const e = h.contrib[id] - M; if (e > 0) { excess[id] = e; ex += e; } }
+    const paid = {};
+    if (ex > 0) {
+      const others = ids.filter(id => !tied.includes(id));
+      const pay = others.length ? settle(excess, others, h.cards, 0).pay : Object.assign({}, excess); // 받을 사람이 없으면 돌려줌
+      for (const [id, a] of Object.entries(pay)) { const p = P(S, id); if (p) { p.chips += a; paid[id] = a; } }
+      for (const id of Object.keys(excess)) { h.contrib[id] -= excess[id]; h.pot -= excess[id]; }
+    }
+    for (const id of ids) if (!tied.includes(id)) { h.folded[id] = true; (h.lost = h.lost || []).push(id); }
+    h.ties = (h.ties || 0) + 1;
+    h.toAct = null;
+    h.result = { type: 'redeal', tie: tied, name: '동점', ev, paid, reveal: true };
+    log(S, `${tied.map(id => P(S, id).name).join(', ')} 동점(${ev[tied[0]]})! 재경기`);
+    Object.entries(paid).forEach(([id, a]) => log(S, `${P(S, id).name} 사이드팟 +${a.toLocaleString()}`));
+    S.phase = 'show';
+  }
+
   function redeal(S, rng, now) {
     const h = S.hand;
     if (S.phase !== 'show' || !h || !h.result || h.result.type !== 'redeal') return false;
-    h.redeals++; h.deck = shuffle(rng); h.cards = {}; h.result = null; h.deal++;
+    if (!h.result.tie) h.redeals++;
+    h.deck = shuffle(rng); h.cards = {}; h.result = null; h.deal++;
     h.seats.forEach(id => { if (!h.folded[id]) h.allin[id] = P(S, id).chips === 0; });
     S.phase = 'bet';
     dealOpening(S); beginRound(S, now); bump(S);
@@ -385,14 +416,14 @@
   function publicState(S, now) {
     const h = S.hand;
     const out = {
-      v: S.v, ph: S.phase, ante: S.ante, sun: S.sun, sc: S.startChips, mode: S.mode || 'one', tg: S.ttaeng || 0,
+      v: S.v, ph: S.phase, ante: S.ante, sun: S.sun, sc: S.startChips, mode: S.mode || 'one', tg: S.ttaeng || 0, tie: S.tie || 'replay',
       pl: S.players.map(p => [p.id, p.name, p.chips, (p.bot ? 1 : 0) | (p.away ? 2 : 0)]),
       log: S.log.slice(-8),
     };
     if (h) {
       out.h = {
         no: h.no, rd: h.round, dl: h.deal, seats: h.seats,
-        fo: Object.keys(h.folded), ai: Object.keys(h.allin).filter(k => h.allin[k]),
+        fo: Object.keys(h.folded), ai: Object.keys(h.allin).filter(k => h.allin[k]), lost: h.lost || [],
         bet: h.bet, pot: h.pot, cur: h.cur, ta: h.toAct, raises: h.raises,
         left: h.toAct ? Math.max(0, h.deadline - (now || 0)) : 0, la: h.lastAct,
         nc: h.cards[live(S)[0]] ? h.cards[live(S)[0]].length : 0,

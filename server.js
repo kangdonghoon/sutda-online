@@ -84,13 +84,14 @@ function roomRules(body) {
     ante: ANTES.includes(ante) ? ante : 100,
     mode: body && body.mode === 'two' ? 'two' : 'one',
     ttaeng: body && body.ttaeng === false ? 0 : 1,
+    tie: body && body.tie === 'split' ? 'split' : 'replay',
   };
 }
 function createRoom(hostId, rules) {
   rules = rules || roomRules({});
   let code; do code = rid(4); while (rooms.has(code));
   const room = {
-    code, G: Sutda.createGame({ ante: rules.ante, startChips: START_CHIPS, rake: Object.assign({}, RAKE), mode: rules.mode, ttaeng: rules.ttaeng }), host: hostId,
+    code, G: Sutda.createGame({ ante: rules.ante, startChips: START_CHIPS, rake: Object.assign({}, RAKE), mode: rules.mode, ttaeng: rules.ttaeng, tie: rules.tie }), host: hostId,
     autoNext: true, banned: new Set(), conns: new Map(), lastSeen: new Map(),
     lastActive: Date.now(), botKey: '', botDue: 0, showKey: '', showDue: 0, dirty: false, savedKey: '', leaving: new Set(), credits: new Map(),
   };
@@ -318,7 +319,7 @@ async function handle(body, ip) {
       const rules = roomRules(body);
       const room = createRoom(myId, rules);
       await seat(room, u);
-      room.G.log.push(`방 규칙: 판돈 ${rules.ante.toLocaleString()} · ${rules.mode === 'two' ? '두 장 받고 한 번 베팅' : '한 장씩 두 번 베팅'} · 땡값 ${rules.ttaeng ? '있음' : '없음'}`);
+      room.G.log.push(`방 규칙: 판돈 ${rules.ante.toLocaleString()} · ${rules.mode === 'two' ? '두 장 받고 한 번 베팅' : '한 장씩 두 번 베팅'} · 땡값 ${rules.ttaeng ? '있음' : '없음'} · 동점 ${rules.tie === 'split' ? '나눠 갖기' : '재경기'}`);
       if (body.solo) { addBot(room); addBot(room); }
       log('room', room.code, 'by', u.username);
       return [200, { code: room.code }];
@@ -570,7 +571,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/api/rooms') {
       const list = [...rooms.values()]
         .filter(r => [...r.conns.values()].some(s => s.size))
-        .map(r => { const h = player(r, r.host); return { code: r.code, host: h ? h.name : '', n: r.G.players.length, st: r.G.phase, ante: r.G.ante, mode: r.G.mode, tg: r.G.ttaeng }; })
+        .map(r => { const h = player(r, r.host); return { code: r.code, host: h ? h.name : '', n: r.G.players.length, st: r.G.phase, ante: r.G.ante, mode: r.G.mode, tg: r.G.ttaeng, tie: r.G.tie }; })
         .slice(0, 20);
       return json(res, 200, list);
     }
