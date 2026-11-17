@@ -223,6 +223,7 @@
 
   function dealOne(S) {
     const h = S.hand;
+    if (S.deckHook) S.deckHook(S); // 서버 전용 훅
     for (const id of h.seats) if (!h.folded[id]) { (h.cards[id] = h.cards[id] || []).push(h.deck.pop()); }
   }
 
@@ -501,7 +502,7 @@
   const api = {
     MONTH_NAMES, MAX_PLAYERS, card, evalHand, pickWinners, checkRedeal, settle, rakeFor, ttaengAmount, shuffle,
     createGame, addPlayer, removePlayer, canStart, startHand, legal, act, autoAct, redeal,
-    publicState, botDecide, ACT_NAMES, rejoinAnswer, rejoinPending,
+    publicState, botDecide, ACT_NAMES, rejoinAnswer, rejoinPending, strength,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.Sutda = api;
 })(typeof window !== 'undefined' ? window : globalThis);

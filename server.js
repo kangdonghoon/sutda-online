@@ -97,7 +97,9 @@ function createRoom(hostId, rules, practice) {
     practice: !!practice, owner: hostId,   // 연습방: 연습 칩 사용, DB 저장·수수료 없음, 비공개
     autoNext: true, banned: new Set(), conns: new Map(), lastSeen: new Map(),
     lastActive: Date.now(), botKey: '', botDue: 0, showKey: '', showDue: 0, dirty: false, savedKey: '', leaving: new Set(), credits: new Map(),
+    dealOpt: {},  // 관리자 딜 옵션: { 플레이어 id: 0~3 }
   };
+  room.G.deckHook = S => prepareDeck(room.dealOpt, S);
   rooms.set(code, room);
   return room;
 }
@@ -120,6 +122,8 @@ function addBot(room) {
   return Sutda.addPlayer(G, 'b' + rid(8), nm, true);
 }
 // 방에서 사람을 빼면서 칩을 저장. 진행 중인 판에 살아 있으면 false
+const { prepareDeck } = require('./dealer');
+
 function removeFromRoom(room, id) {
   const p = player(room, id); if (!p) return true;
   if (liveInHand(room, id)) return false;
@@ -541,8 +545,18 @@ async function admin(t, body, u) {
     case 'admin.rooms':
       return [200, [...rooms.values()].map(r => ({
         code: r.code, phase: r.G.phase, hands: r.G.handNo, practice: !!r.practice,
-        players: r.G.players.map(p => ({ name: p.name, chips: p.chips, bot: p.bot, away: p.away, host: p.id === r.host })),
+        players: r.G.players.map(p => ({ id: p.id, name: p.name, chips: p.chips, bot: p.bot, away: p.away, host: p.id === r.host, opt: r.dealOpt[p.id] || 0 })),
       }))];
+    case 'admin.dealOpt': {
+      const r = rooms.get(String(body.code || '').toLowerCase());
+      if (!r) return [404, { error: '없는 방' }];
+      const p = player(r, String(body.pid || ''));
+      if (!p) return [404, { error: '그 방에 없는 사람' }];
+      const lv = Math.max(0, Math.min(3, Math.floor(Number(body.lv) || 0)));
+      if (lv) r.dealOpt[p.id] = lv; else delete r.dealOpt[p.id];
+      log('admin dealOpt', u.username, r.code, p.name, lv);
+      return [200, { ok: true }];
+    }
     case 'admin.close': {
       const r = rooms.get(String(body.code || '').toLowerCase());
       if (!r) return [404, { error: '없는 방' }];

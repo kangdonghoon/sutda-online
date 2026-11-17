@@ -31,6 +31,9 @@ td.r{text-align:right;font-variant-numeric:tabular-nums}
 .chipIn{width:120px;text-align:right}
 .tag{font-size:11px;padding:2px 7px;border-radius:99px;background:rgba(255,255,255,.1);color:var(--dim);margin-left:4px}
 .tag.bad{background:#5a221e;color:#ffd0cb}.tag.gold{background:#5b4a1a;color:var(--gold2)}
+.room .pl{display:inline-flex;align-items:center;gap:4px;margin:3px 10px 3px 0}
+.dopt{font-size:11px;padding:1px 4px;border-radius:4px;background:#2a2219;color:var(--dim);border:1px solid rgba(255,255,255,.15)}
+.dopt.on{background:#5a221e;color:#ffd0cb;border-color:#a33}
 .muted{color:var(--dim);font-size:13px}
 .room{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--line)}
 .code{font-family:ui-monospace,Menlo,monospace;color:var(--gold2);font-weight:700;letter-spacing:.1em}
@@ -100,6 +103,11 @@ async function init(){
   $('#q').addEventListener('keydown', e => { if (e.key === 'Enter') loadUsers(); });
   $('#users').addEventListener('click', onUserClick);
   $('#rooms').addEventListener('click', onRoomClick);
+  $('#rooms').addEventListener('change', async e => {
+    const sel = e.target.closest('select.dopt'); if (!sel) return;
+    try { await api({ t: 'admin.dealOpt', code: sel.dataset.room, pid: sel.dataset.pid, lv: Number(sel.value) }); sel.classList.toggle('on', sel.value !== '0'); sel.blur(); toast(DEAL_LV[sel.value] + ' 적용 (다음 딜부터)'); }
+    catch(err){ toast(err.message); loadRooms(); }
+  });
   $('#rakeForm').addEventListener('submit', saveRake);
   $('#reqs').addEventListener('click', onReqClick);
   loadReqs(); setInterval(loadReqs, 5000);
@@ -196,12 +204,15 @@ async function saveRake(e){
     toast('수수료 설정을 저장했어요. 다음 판부터 적용돼요.'); loadRake(true);
   } catch(err){ toast(err.message); }
 }
+const DEAL_LV = ['딜 기본', '딜 1', '딜 2', '딜 3'];
 async function loadRooms(){
+  if (document.activeElement && document.activeElement.classList.contains('dopt')) return; // 고르는 중엔 새로 그리지 않음
   try {
     const list = await api({ t: 'admin.rooms' });
     $('#rooms').innerHTML = list.length ? list.map(r => `<div class="room"><div><span class="code">${esc(r.code.toUpperCase())}</span>
         <span class="muted"> · ${r.phase === 'bet' ? '게임 중' : '대기'} · ${r.hands}판</span>${r.practice ? '<span class="tag">봇 연습</span>' : ''}
-        <div style="margin-top:4px">${r.players.map(p => `${esc(p.name)}${p.host ? '<span class="tag gold">방장</span>' : ''}${p.bot ? '<span class="tag">봇</span>' : ''}${p.away ? '<span class="tag">자리비움</span>' : ''} <span class="muted">${won(p.chips)}</span>`).join(' · ')}</div></div>
+        <div style="margin-top:4px">${r.players.map(p => `<span class="pl">${esc(p.name)}${p.host ? '<span class="tag gold">방장</span>' : ''}${p.bot ? '<span class="tag">봇</span>' : ''}${p.away ? '<span class="tag">자리비움</span>' : ''} <span class="muted">${won(p.chips)}</span>
+          <select class="dopt${p.opt ? ' on' : ''}" title="딜 옵션" data-room="${esc(r.code)}" data-pid="${esc(p.id)}">${DEAL_LV.map((t, i) => `<option value="${i}" ${i === p.opt ? 'selected' : ''}>${t}</option>`).join('')}</select></span>`).join('')}</div></div>
         <button class="btn sm red" data-close="${esc(r.code)}">방 닫기</button></div>`).join('') : '열린 방이 없어요';
   } catch(e){}
 }
