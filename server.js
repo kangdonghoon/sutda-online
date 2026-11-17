@@ -14,6 +14,7 @@ const ADMINS = new Set((process.env.ADMIN_USERS || '').split(',').map(s => s.tri
 const ROOM_IDLE_MS = 30 * 60 * 1000;    // 아무도 없는 방은 30분 뒤 삭제
 const AWAY_GRACE_MS = 4000;             // 연결이 끊기고 이 시간이 지나면 '자리비움'
 const TURN_MS = 30000;
+const REJOIN_MS = 12000;   // 구사 재경기 때 다이한 사람이 참가 여부를 정하는 시간
 const SESSION_MS = 30 * 24 * 3600 * 1000; // 로그인 유지 30일
 
 const store = createStore();
@@ -167,6 +168,7 @@ function viewFor(room, id) {
   const G = room.G, now = Date.now();
   const s = Sutda.publicState(G, now);
   s.code = room.code; s.host = room.host; s.auto = room.autoNext; s.turnMs = TURN_MS; s.you = id; s.practice = !!room.practice;
+  if (s.h && s.h.rj) { s.h.rj.left = Math.max(0, room.showDue - now); s.h.rj.total = REJOIN_MS; }
   if (s.h && s.h.res) delete s.h.res.rake; // 수수료는 플레이어에게 보이지 않음 (관리자 페이지에서만)
   const rq = pendingByUid.get(uidOf(id)); s.req = rq ? { amount: rq.amount } : null;
   s.canStart = Sutda.canStart(G);
@@ -225,8 +227,29 @@ setInterval(() => {
     if (G.phase === 'show' && h) {
       const redeal = h.result && h.result.type === 'redeal';
       const k = h.no + ':' + h.deal + ':' + (h.result && h.result.type);
-      if (room.showKey !== k) { room.showKey = k; room.showDue = now + (redeal ? 4000 : 6500); }
-      else if (now >= room.showDue && (redeal || (room.autoNext && Sutda.canStart(G)))) { room.showKey = ''; next(room); dirty = true; }
+      if (room.showKey !== k) {
+        room.showKey = k; room.showDue = now + (redeal ? 4000 : 6500);
+        room.botRj = new Map();
+        if (redeal && h.rejoin) {                       // 다이한 사람에게 참가 여부를 묻는 동안 기다림
+          room.showDue = now + REJOIN_MS;
+          for (const id of Sutda.rejoinPending(G)) {
+            const p = player(room, id);
+            if (p && p.bot) room.botRj.set(id, now + 1000 + rng() * 2500);
+            else if (!p || p.away) Sutda.rejoinAnswer(G, id, false);
+          }
+          dirty = true;
+        }
+      }
+      if (redeal && h.rejoin) {
+        for (const [id, due] of room.botRj) {
+          if (now < due) continue;
+          room.botRj.delete(id);
+          const p = player(room, id), cost = h.rejoin.cost[id] || 0;
+          if (p) { Sutda.rejoinAnswer(G, id, rng() < (cost <= p.chips * 0.3 ? 0.6 : 0.2)); dirty = true; }
+        }
+        if (!Sutda.rejoinPending(G).length && room.showDue - now > 1500) { room.showDue = now + 1500; dirty = true; }
+      }
+      if (now >= room.showDue && (redeal || (room.autoNext && Sutda.canStart(G)))) { room.showKey = ''; next(room); dirty = true; }
     }
     if (dirty) changed(room);
     const anyone = [...room.conns.values()].some(s => s.size);
@@ -366,6 +389,9 @@ async function handle(body, ip) {
       if (!room.host || !player(room, room.host)) room.host = myId;
       return ok({ seated: !!p });
     }
+    case 'rejoin':
+      if (!Sutda.rejoinAnswer(G, myId, !!body.yes)) return [409, { error: '지금은 정할 수 없어요' }];
+      return ok();
     case 'practiceRefill': {
       const p = player(room, myId);
       if (!room.practice || !p) return [400, { error: '연습방에서만 쓸 수 있어요' }];

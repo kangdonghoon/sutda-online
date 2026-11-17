@@ -340,6 +340,13 @@
     if (rd) {
       h.result = { type: 'redeal', by: rd.by, name: rd.name, ev, reveal: true };
       log(S, `${P(S, rd.by).name}의 ${rd.name}! 재경기`);
+      // 다이했던 사람에게 재참가 제안: 남은 사람이 건 만큼 맞추면 다시 들어올 수 있음
+      const top = Math.max(...ids.map(id => h.contrib[id]));
+      const offer = h.seats.filter(id => h.folded[id] && !(h.lost || []).includes(id) && P(S, id) && P(S, id).chips > 0);
+      if (offer.length) {
+        h.rejoin = { ids: offer, cost: {}, yes: {}, no: {} };
+        offer.forEach(id => { h.rejoin.cost[id] = Math.max(0, top - h.contrib[id]); });
+      }
       S.phase = 'show';
       return;
     }
@@ -401,9 +408,29 @@
     S.phase = 'show';
   }
 
+  // 재참가 응답 (구사 재경기 대기 중에만)
+  function rejoinAnswer(S, id, yes) {
+    const h = S.hand, rj = h && h.rejoin;
+    if (S.phase !== 'show' || !rj || !rj.ids.includes(id) || rj.yes[id] || rj.no[id]) return false;
+    (yes ? rj.yes : rj.no)[id] = true;
+    log(S, `${P(S, id).name}: ${yes ? `재경기 참가 (${rj.cost[id].toLocaleString()})` : '재경기 안 함'}`);
+    bump(S);
+    return true;
+  }
+  const rejoinPending = S => { const rj = S.hand && S.hand.rejoin; return rj ? rj.ids.filter(id => !rj.yes[id] && !rj.no[id]) : []; };
+
   function redeal(S, rng, now) {
     const h = S.hand;
     if (S.phase !== 'show' || !h || !h.result || h.result.type !== 'redeal') return false;
+    // 참가하겠다고 한 사람은 차액을 내고 다시 들어옴 (대답 안 한 사람은 불참)
+    if (h.rejoin) {
+      for (const id of Object.keys(h.rejoin.yes)) {
+        if (!P(S, id)) continue;
+        pay(S, id, h.rejoin.cost[id], true);
+        delete h.folded[id]; delete h.lastAct[id];
+      }
+      h.rejoin = null;
+    }
     if (!h.result.tie) h.redeals++;
     h.deck = shuffle(rng); h.cards = {}; h.result = null; h.deal++;
     h.seats.forEach(id => { if (!h.folded[id]) h.allin[id] = P(S, id).chips === 0; });
@@ -424,6 +451,7 @@
       out.h = {
         no: h.no, rd: h.round, dl: h.deal, seats: h.seats,
         fo: Object.keys(h.folded), ai: Object.keys(h.allin).filter(k => h.allin[k]), lost: h.lost || [],
+        rj: h.rejoin ? { ids: h.rejoin.ids, cost: h.rejoin.cost, yes: Object.keys(h.rejoin.yes), no: Object.keys(h.rejoin.no) } : null,
         bet: h.bet, pot: h.pot, cur: h.cur, ta: h.toAct, raises: h.raises,
         left: h.toAct ? Math.max(0, h.deadline - (now || 0)) : 0, la: h.lastAct,
         nc: h.cards[live(S)[0]] ? h.cards[live(S)[0]].length : 0,
@@ -472,7 +500,7 @@
   const api = {
     MONTH_NAMES, MAX_PLAYERS, card, evalHand, pickWinners, checkRedeal, settle, rakeFor, ttaengAmount, shuffle,
     createGame, addPlayer, removePlayer, canStart, startHand, legal, act, autoAct, redeal,
-    publicState, botDecide, ACT_NAMES,
+    publicState, botDecide, ACT_NAMES, rejoinAnswer, rejoinPending,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.Sutda = api;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -326,7 +326,11 @@ function render(){
     }
     let st = '';
     if (!inHand(p.id)) st = p.chips <= 0 ? '칩 없음' : (ph === 'bet' ? '다음 판부터' : '');
-    else if (folded(p.id)) st = (h.lost || []).includes(p.id) ? '패배' : '다이';
+    else if (folded(p.id)) {
+      const rj = h.rj;
+      st = (h.lost || []).includes(p.id) ? '패배' : '다이';
+      if (ph === 'show' && rj && rj.ids.includes(p.id)) st = rj.yes.includes(p.id) ? '<b>재경기 참가!</b>' : rj.no.includes(p.id) ? '다이 (안 함)' : '<b>참가 고민 중…</b>';
+    }
     else if (ph === 'show' && ev[p.id]) st = `<span class="hn">${esc(ev[p.id])}</span>`;
     else if (allin(p.id)) st = '<b>올인</b>';
     else if (turn) st = '<b>고민 중…</b>';
@@ -377,7 +381,8 @@ function render(){
         banner = `<div class="seal" style="animation-delay:-${ago}ms">동점 재경기</div><div style="margin-top:8px">${names} 동점(${esc(ev[res.tie[0]] || '')}) — 판돈 그대로 둘이서 다시 겨뤄요</div>`.replace('둘이서', res.tie.length > 2 ? `${res.tie.length}명이서` : '둘이서');
       } else {
         const by = byId[res.by];
-        banner = `<div class="seal" style="animation-delay:-${ago}ms">${esc(res.name)} 재경기</div><div style="margin-top:8px">${esc(by ? by.name : '')}의 ${esc(res.name)} — 판돈 그대로 다시 돌려요</div>`;
+        const rj = h.rj, waiting = rj ? rj.ids.filter(id => !rj.yes.includes(id) && !rj.no.includes(id)).length : 0;
+        banner = `<div class="seal" style="animation-delay:-${ago}ms">${esc(res.name)} 재경기</div><div style="margin-top:8px">${esc(by ? by.name : '')}의 ${esc(res.name)} — 판돈 그대로 다시 돌려요</div>${waiting ? `<div style="margin-top:4px">다이한 사람이 참가 여부를 정하는 중 (${waiting}명)</div>` : ''}`;
       }
     } else {
       const wn = winners.map(id => (byId[id] || {}).name).filter(Boolean).map(esc).join(', ');
@@ -424,6 +429,9 @@ function render(){
       if (res.tg.to === myId) status += ` <b style="color:var(--red)">땡값 +${won(res.tg.total)}</b>`;
       else if (res.tg.from[myId]) status += ` <span style="color:var(--ink2)">땡값 -${won(res.tg.from[myId])}</span>`;
     }
+    const rj = h && h.rj;
+    const myOffer = !!(ph === 'show' && res && res.type === 'redeal' && rj && rj.ids.includes(myId) && !rj.yes.includes(myId) && !rj.no.includes(myId));
+    if (ph === 'show' && rj && rj.yes.includes(myId)) status = '<b style="color:var(--red)">재경기 참가 신청!</b>';
     const lg = myTurn ? (h.lg || {}) : {};
     const need = h ? Math.max(0, h.cur - ((h.bet && h.bet[myId]) || 0)) : 0;
     const B = (k, label, cls) => {
@@ -441,14 +449,19 @@ function render(){
         <div class="myhand">${esc(hn)}</div>
         ${myTurn ? '<div class="timer"><i data-timer></i></div>' : ''}
       </div>
-      <div id="actions">
+      ${myOffer ? `<div id="actions" class="rjbox">
+        <div class="rjq">${esc(res.name)} 재경기! ${rj.cost[myId] ? `<b>${won(rj.cost[myId])}</b>을 내고` : '추가 비용 없이'} 다시 참가할까요?</div>
+        <button class="act raise" data-rj="1">참가<small>${rj.cost[myId] ? won(rj.cost[myId]) + (rj.cost[myId] >= mp.chips ? ' 올인' : '') : '0'}</small></button>
+        <button class="act die" data-rj="0">안 함<small>계속 다이</small></button>
+        <div class="timer" style="grid-column:1/-1;max-width:none"><i data-rjtimer></i></div>
+      </div>` : `<div id="actions">
         ${B('die', '다이', 'die')}
         ${showCheck ? B('check', '체크', 'call') : B('call', '콜', 'call')}
         ${B('bbing', '삥', 'raise')}
         ${B('half', '하프', 'raise')}
         ${B('ddadang', '따당', 'raise')}
         <button class="act" data-act="ranks">족보<small>보기</small></button>
-      </div>`;
+      </div>`}`;
   }
 
   // ── 연출 ──
@@ -479,6 +492,7 @@ function render(){
       }
     }
     if (ph === 'bet' && h.ta === myId && P.ta !== myId) FX.sound.turn();
+    if (h.rj && h.rj.ids.includes(myId) && !P.rj) FX.sound.turn();
     const rk = res ? handKey + ':' + res.type : '';
     if (res && P.rk !== rk) {
       FX.sound.stamp();
@@ -489,7 +503,7 @@ function render(){
       }
     }
   }
-  prevSnap = h ? { no: h.no, dl: h.dl, rd: h.rd, bet: Object.assign({}, h.bet), fo: (h.fo || []).slice(), ta: h.ta, ph, rk: res ? handKey + ':' + res.type : '' } : { ph };
+  prevSnap = h ? { no: h.no, dl: h.dl, rd: h.rd, bet: Object.assign({}, h.bet), fo: (h.fo || []).slice(), ta: h.ta, ph, rk: res ? handKey + ':' + res.type : '', rj: !!(h.rj && h.rj.ids.includes(myId)) } : { ph };
   if (firstSeen.size > 400) firstSeen.clear();
   renderLog();
   renderTimers();
@@ -522,6 +536,11 @@ function renderLog(){
   if (atBottom) el.scrollTop = el.scrollHeight;
 }
 function renderTimers(){
+  if (PS && PS.h && PS.h.rj && PS.ph === 'show') {
+    const left = PS.h.rj.left - (Date.now() - psAt);
+    const pct = Math.max(0, Math.min(100, left / (PS.h.rj.total || 12000) * 100));
+    document.querySelectorAll('[data-rjtimer]').forEach(el => { el.style.width = pct + '%'; });
+  }
   if (!PS || !PS.h || PS.ph !== 'bet') return;
   const left = PS.h.left - (Date.now() - psAt);
   const pct = Math.max(0, Math.min(100, left / (PS.turnMs || 30000) * 100));
@@ -536,6 +555,12 @@ document.addEventListener('click', e => {
     if (k === 'ranks') return showRanks();
     document.querySelectorAll('#actions .act').forEach(b => { if (b.dataset.act !== 'ranks') b.disabled = true; });
     api({ t: 'act', k }).then(r => { if (!r.ok) render(); });
+    return;
+  }
+  const rjb = e.target.closest('[data-rj]');
+  if (rjb && !rjb.disabled) {
+    document.querySelectorAll('[data-rj]').forEach(b => { b.disabled = true; });
+    api({ t: 'rejoin', yes: rjb.dataset.rj === '1' }).then(r => { if (!r.ok) render(); });
     return;
   }
   const kk = e.target.closest('[data-kick]');
@@ -591,7 +616,7 @@ function showRanks(){
     ['끗', '두 장 합의 일의 자리. 갑오(9끗) > 8끗 > … > 1끗 > 망통(0)'],
     ['암행어사', '4월 열끗 + 7월 열끗. 13·18광땡을 잡음 (아니면 1끗)'],
     ['땡잡이', '3월 광 + 7월 열끗. 1~9땡을 잡음 (아니면 망통)'],
-    ['구사', '4 + 9. 상대 최고가 알리 이하면 재경기 (아니면 3끗)'],
+    ['구사', '4 + 9. 상대 최고가 알리 이하면 재경기 (아니면 3끗). 재경기 때 다이했던 사람은 남은 사람이 건 만큼 맞춰 내고 다시 참가할 수 있음'],
     ['멍텅구리구사', '4월 열끗 + 9월 열끗. 상대가 장땡 이하면 재경기'],
   ];
   const X = [

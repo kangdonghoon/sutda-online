@@ -127,6 +127,40 @@ assert.equal(S.ttaengAmount(900, 500, 1), 750);
   assert.deepEqual(h.result.winners, ['y']); assert.equal(h.result.tg, undefined);
 }
 
+// 구사 재경기 재참가: z는 첫 장에서 다이, x 구사·y 알리 → 재경기, z는 차액을 내고 참가
+{
+  const G = S.createGame({ ante: 100 });
+  ['x', 'y', 'z'].forEach(id => S.addPlayer(G, id, id, true));
+  S.startHand(G, () => 0.5, 0);
+  const h = G.hand;
+  S.act(G, 'x', 'bbing', 0); S.act(G, 'y', 'call', 0); S.act(G, 'z', 'die', 0);   // x·y 각 200, z 100
+  h.cards = { x: [pi(4), pi(9)], y: [pi(1), pi(2)], z: h.cards.z };
+  S.act(G, 'x', 'check', 0); S.act(G, 'y', 'check', 0);
+  assert.equal(h.result.type, 'redeal'); assert.equal(h.result.name, '구사');
+  assert.deepEqual(h.rejoin.ids, ['z']); assert.equal(h.rejoin.cost.z, 100);
+  assert.deepEqual(S.rejoinPending(G), ['z']);
+  assert.equal(S.rejoinAnswer(G, 'x', true), false, 'only folded players');
+  assert.ok(S.rejoinAnswer(G, 'z', true)); assert.equal(S.rejoinAnswer(G, 'z', false), false, 'answer once');
+  const pot = h.pot, zc = G.players[2].chips;
+  S.redeal(G, () => 0.4, 0);
+  assert.equal(h.pot, pot + 100); assert.equal(G.players[2].chips, zc - 100); assert.equal(h.contrib.z, 200);
+  assert.ok(!h.folded.z && h.cards.z && h.cards.z.length === 1);
+  assert.equal(S.publicState(G, 0).h.rj, null);
+}
+{
+  // 대답 안 하면 불참
+  const G = S.createGame({ ante: 100 });
+  ['x', 'y', 'z'].forEach(id => S.addPlayer(G, id, id, true));
+  S.startHand(G, () => 0.5, 0);
+  const h = G.hand;
+  S.act(G, 'x', 'check', 0); S.act(G, 'y', 'check', 0); S.act(G, 'z', 'die', 0);
+  h.cards = { x: [pi(4), pi(9)], y: [pi(1), pi(2)], z: h.cards.z };
+  S.act(G, 'x', 'check', 0); S.act(G, 'y', 'check', 0);
+  assert.equal(h.rejoin.cost.z, 0);
+  S.redeal(G, () => 0.4, 0);
+  assert.ok(h.folded.z && !h.cards.z);
+}
+
 // 동점 재경기
 const play = (G, pick) => { while (G.phase === 'bet') S.act(G, G.hand.toAct, pick ? pick(G.hand.toAct) : 'check', 0); };
 {
@@ -185,7 +219,7 @@ const play = (G, pick) => { while (G.phase === 'bet') S.act(G, G.hand.toAct, pic
 
 // ── 시뮬레이션: 무작위 게임 수천 판, 칩 보존과 무한루프 없음 확인
 let seed = 7; const rng = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
-let hands = 0, redeals = 0, folds = 0, shows = 0, raked = 0, ttaengs = 0, ties = 0;
+let hands = 0, redeals = 0, folds = 0, shows = 0, raked = 0, ttaengs = 0, ties = 0, rejoins = 0;
 for (let g = 0; g < 300; g++) {
   const G = S.createGame({ ante: 100, startChips: 3000, rake: g % 3 ? { rate: 5, cap: 300, min: 300, folds: g % 2 === 0 } : null, mode: g % 4 < 2 ? 'two' : 'one', ttaeng: g % 2, tie: g % 5 === 0 ? 'split' : 'replay' });
   const n = 2 + (g % 5);
@@ -202,7 +236,11 @@ for (let g = 0; g < 300; g++) {
         const kind = rng() < 0.05 ? null : S.botDecide(G, id, rng);
         const ok = kind ? S.act(G, id, kind, 0) : S.autoAct(G, 0);
         assert.ok(ok, 'illegal ' + kind + ' ' + JSON.stringify(S.legal(G, id)));
-      } else if (G.phase === 'show' && G.hand.result.type === 'redeal') { G.hand.result.tie ? ties++ : redeals++; S.redeal(G, rng, 0); }
+      } else if (G.phase === 'show' && G.hand.result.type === 'redeal') {
+        G.hand.result.tie ? ties++ : redeals++;
+        S.rejoinPending(G).forEach(id => { if (rng() < 0.6) { S.rejoinAnswer(G, id, rng() < 0.7); rejoins++; } });
+        S.redeal(G, rng, 0);
+      }
       else break;
       assert.ok(++steps < 500, 'loop');
       assert.equal(total(), T0, 'chips not conserved mid-hand');
@@ -215,4 +253,4 @@ for (let g = 0; g < 300; g++) {
     G.players.forEach(p => assert.ok(p.chips >= 0));
   }
 }
-console.log('ok', { hands, redeals, ties, folds, shows, raked, ttaengs });
+console.log('ok', { hands, redeals, ties, rejoins, folds, shows, raked, ttaengs });
