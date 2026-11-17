@@ -89,8 +89,7 @@ async function init(){
         <label><input type="checkbox" id="rkFolds"> 모두 다이한 판에도 적용</label>
         <button class="btn gold">저장</button>
       </form>
-      <p class="muted" style="margin:0 0 12px">판이 끝날 때 판돈(아무도 받지 않은 초과 베팅 제외)에서 떼요. 최대 0은 제한 없음, 수수료율 0%는 수수료 없음. 바꾼 설정은 각 방의 다음 판부터 적용돼요.</p>
-      <div class="wrap"><table><thead><tr><th>시간</th><th>방</th><th style="text-align:right">판</th><th style="text-align:right">판돈</th><th style="text-align:right">수수료</th><th>승자</th></tr></thead><tbody id="rakeLog"></tbody></table></div>
+      <p class="muted" style="margin:0">판이 끝날 때 판돈(아무도 받지 않은 초과 베팅 제외)에서 떼요. 최대 0은 제한 없음, 수수료율 0%는 수수료 없음. 바꾼 설정은 각 방의 다음 판부터 적용돼요.</p>
     </section>
     <section><h2>회원</h2>
       <div class="bar"><input id="q" class="inp" placeholder="아이디·닉네임 검색" style="flex:1;min-width:180px"><button class="btn" id="qBtn">검색</button><button class="btn" id="reload">새로고침</button></div>
@@ -188,9 +187,6 @@ async function loadRake(fillForm){
     if (fillForm) {
       $('#rkRate').value = r.settings.rate; $('#rkCap').value = r.settings.cap; $('#rkMin').value = r.settings.min; $('#rkFolds').checked = r.settings.folds;
     }
-    $('#rakeLog').innerHTML = r.recent.map(e => `<tr><td class="muted">${when(e.at)}</td><td><span class="code">${esc(e.room.toUpperCase())}</span></td>
-      <td class="r">${won(e.hand)}</td><td class="r">${won(e.pot)}</td><td class="r" style="color:var(--gold2)">${won(e.rake)}</td><td>${esc(e.winners)}</td></tr>`).join('')
-      || '<tr><td colspan="6" class="muted">아직 수수료 기록이 없어요</td></tr>';
   } catch(e){ toast(e.message); }
 }
 async function saveRake(e){

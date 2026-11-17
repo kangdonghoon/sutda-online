@@ -462,12 +462,8 @@ async function admin(t, body, u) {
     }
     case 'admin.rake': {
       const now = Date.now();
-      const [stats, recent] = await Promise.all([
-        store.rakeStats({ today: kstDayStart(now), week: now - 7 * 864e5 }),
-        store.recentRake(30),
-      ]);
-      let live = 0; for (const r of rooms.values()) live += r.G.rakeTotal || 0;
-      return [200, { settings: RAKE, stats, recent, live }];
+      const stats = await store.rakeStats({ today: kstDayStart(now), week: now - 7 * 864e5 });
+      return [200, { settings: RAKE, stats }];
     }
     case 'admin.rakeSet': {
       RAKE = cleanRake(body);
