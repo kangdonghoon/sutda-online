@@ -306,6 +306,10 @@ function render(){
     else if (allin(p.id)) st = '<b>올인</b>';
     else if (turn) st = '<b>고민 중…</b>';
     if (ph === 'show' && res && res.pay && res.pay[p.id]) st += ` <b>+${won(res.pay[p.id])}</b>`;
+    if (ph === 'show' && res && res.tg) {
+      if (res.tg.to === p.id) st += ` <b>땡값 +${won(res.tg.total)}</b>`;
+      else if (res.tg.from[p.id]) st += ` <b class="neg">땡값 -${won(res.tg.from[p.id])}</b>`;
+    }
     const la = h && ph === 'bet' && h.la && h.la[p.id];
     const bub = la ? `<div class="bubble ${la === 'die' ? 'die' : /bbing|half|ddadang/.test(la) ? 'raise' : ''}" style="animation-delay:-${since('la:' + handKey + h.rd + p.id + la)}ms">${ACT_LABEL[la] || ''}</div>` : '';
     const canKick = isHost && !(ph === 'bet' && inHand(p.id) && !folded(p.id));
@@ -334,10 +338,12 @@ function render(){
   if (ph === 'lobby' || !h) {
     const n = players.filter(p => p.chips > 0 && !p.away).length;
     const rk = s.rake && s.rake.rate > 0 ? ` · 수수료 ${s.rake.rate}%${s.rake.cap ? `(최대 ${won(s.rake.cap)})` : ''}` : '';
-    banner = `<span class="big">${n >= 2 ? '시작 대기' : '사람 모으는 중'}</span>${n}명 · 판돈 ${won(s.ante)}${rk}<br>${isHost ? (n >= 2 ? '위의 [게임 시작]을 누르세요' : '2명 이상 필요해요. 봇을 넣어도 돼요') : '방장이 시작하면 패가 돌아가요'}`;
+    const md = s.mode === 'two' ? '두 장 받고 한 번 베팅' : '한 장씩 두 번 베팅';
+    const tgt = s.tg ? ` · 땡값 판돈×${s.tg}` : '';
+    banner = `<span class="big">${n >= 2 ? '시작 대기' : '사람 모으는 중'}</span>${n}명 · 판돈 ${won(s.ante)}${rk}<br>${md}${tgt}<br>${isHost ? (n >= 2 ? '위의 [게임 시작]을 누르세요' : '2명 이상 필요해요. 봇을 넣어도 돼요') : '방장이 시작하면 패가 돌아가요'}`;
   } else if (ph === 'bet') {
     const tn = byId[h.ta];
-    banner = `<span class="big">${h.rd === 1 ? '첫 장' : '두 번째 장'}</span>${tn ? (tn.id === myId ? '내 차례예요' : esc(tn.name) + ' 차례') : ''}${h.cur ? ` · 현재 ${won(h.cur)}` : ''}`;
+    banner = `<span class="big">${h.rd === 1 ? '첫 장' : (s.mode === 'two' && h.dl === 1 ? '베팅' : '두 번째 장')}</span>${tn ? (tn.id === myId ? '내 차례예요' : esc(tn.name) + ' 차례') : ''}${h.cur ? ` · 현재 ${won(h.cur)}` : ''}`;
   } else if (ph === 'show' && res) {
     const ago = since('res:' + handKey + res.type);
     if (res.type === 'redeal') {
@@ -346,7 +352,12 @@ function render(){
     } else {
       const wn = winners.map(id => (byId[id] || {}).name).filter(Boolean).map(esc).join(', ');
       const wh = res.type === 'show' && winners[0] && ev[winners[0]] ? ev[winners[0]] : '';
-      banner = `${wh ? `<div class="seal" style="animation-delay:-${ago}ms">${esc(wh)}</div>` : ''}<span class="big" style="margin-top:6px">${wn} 승!</span>${res.type === 'fold' ? '모두 다이' : (res.catchBy ? `${esc(res.catchBy)}로 잡았어요` : '')}${res.rake ? ` · 수수료 ${won(res.rake)}` : ''}${s.auto && s.canStart ? ' · 곧 다음 판' : ''}`;
+      banner = `${wh ? `<div class="seal" style="animation-delay:-${ago}ms">${esc(wh)}</div>` : ''}<span class="big" style="margin-top:6px">${wn} 승!</span>${[
+        res.type === 'fold' ? '모두 다이' : (res.catchBy ? `${esc(res.catchBy)}로 잡았어요` : ''),
+        res.tg ? `<b style="color:var(--win)">땡값 +${won(res.tg.total)}</b>` : '',
+        res.rake ? `수수료 ${won(res.rake)}` : '',
+        s.auto && s.canStart ? '곧 다음 판' : '',
+      ].filter(Boolean).join(' · ')}`;
     }
   }
   const pot = h ? h.pot : 0;
@@ -380,6 +391,10 @@ function render(){
     else if (allin(myId)) status = '올인!';
     else if (myTurn) status = '<b style="color:var(--red)">내 차례</b>';
     if (ph === 'show' && res && res.pay && res.pay[myId]) status = `<b style="color:var(--red)">+${won(res.pay[myId])} 획득!</b>`;
+    if (ph === 'show' && res && res.tg) {
+      if (res.tg.to === myId) status += ` <b style="color:var(--red)">땡값 +${won(res.tg.total)}</b>`;
+      else if (res.tg.from[myId]) status += ` <span style="color:var(--ink2)">땡값 -${won(res.tg.from[myId])}</span>`;
+    }
     const lg = myTurn ? (h.lg || {}) : {};
     const need = h ? Math.max(0, h.cur - ((h.bet && h.bet[myId]) || 0)) : 0;
     const B = (k, label, cls) => {
@@ -441,6 +456,7 @@ function render(){
       if (res.type !== 'redeal') {
         winners.forEach((w, i) => { FX.flyChips(potEl, seatEl(w), 6, 500 + i * 150); setTimeout(() => FX.burst(seatEl(w), w === myId), 650); });
         if (inHand(myId)) setTimeout(() => (winners.includes(myId) ? FX.sound.win() : FX.sound.lose()), 450);
+        if (res.tg) Object.keys(res.tg.from).forEach((id, i) => FX.flyChips(seatEl(id), seatEl(res.tg.to), 3, 1300 + i * 160));
       }
     }
   }
@@ -454,18 +470,22 @@ function renderHostbar(){
   if (!s || s.host !== s.you) { hb.classList.add('hidden'); hb.dataset.sig = ''; return; }
   hb.classList.remove('hidden');
   const redealPending = s.ph === 'show' && s.h && s.h.res && s.h.res.type === 'redeal';
-  const sig = [s.ph, s.ante, s.auto, s.pl.length, s.canStart, redealPending].join('|');
+  const sig = [s.ph, s.ante, s.auto, s.pl.length, s.canStart, redealPending, s.mode, s.tg].join('|');
   if (hb.dataset.sig === sig) return; hb.dataset.sig = sig;
   const betting = s.ph === 'bet';
   hb.innerHTML = `<span class="lbl">방장</span>
     <button class="btn gold" id="hbStart" ${betting || redealPending || !s.canStart ? 'disabled' : ''}>${s.ph === 'show' ? '다음 판' : '게임 시작'}</button>
     <button class="btn" id="hbBot" ${s.pl.length >= Sutda.MAX_PLAYERS ? 'disabled' : ''}>봇 추가</button>
     <select id="hbAnte" ${betting ? 'disabled' : ''} title="판돈">${[100, 500, 1000, 5000].map(a => `<option value="${a}" ${s.ante === a ? 'selected' : ''}>판돈 ${won(a)}</option>`).join('')}</select>
+    <select id="hbMode" title="진행 방식"><option value="one" ${s.mode !== 'two' ? 'selected' : ''}>한 장씩 · 2번 베팅</option><option value="two" ${s.mode === 'two' ? 'selected' : ''}>두 장 받고 · 1번 베팅</option></select>
+    <select id="hbTg" title="땡값">${[0, 3, 5, 10].map(m => `<option value="${m}" ${(s.tg || 0) === m ? 'selected' : ''}>${m ? `땡값 판돈×${m}` : '땡값 없음'}</option>`).join('')}</select>
     <label class="chk"><input type="checkbox" id="hbAuto" ${s.auto ? 'checked' : ''}> 자동으로 다음 판</label>`;
   $('#hbStart').onclick = () => api({ t: 'start' });
   $('#hbBot').onclick = () => api({ t: 'bot' });
   $('#hbAnte').onchange = e => api({ t: 'ante', ante: Number(e.target.value) });
   $('#hbAuto').onchange = e => api({ t: 'auto', on: e.target.checked });
+  $('#hbMode').onchange = e => api({ t: 'mode', mode: e.target.value });
+  $('#hbTg').onchange = e => api({ t: 'ttaeng', mult: Number(e.target.value) });
 }
 function renderLog(){
   if (!inGame) return;
@@ -549,10 +569,16 @@ function showRanks(){
     ['구사', '4 + 9. 상대 최고가 알리 이하면 재경기 (아니면 3끗)'],
     ['멍텅구리구사', '4월 열끗 + 9월 열끗. 상대가 장땡 이하면 재경기'],
   ];
+  const X = [
+    ['한 장씩 · 2번 베팅', '한 장 받고 베팅, 한 장 더 받고 베팅 (기본)'],
+    ['두 장 받고 · 1번 베팅', '두 장을 다 받고 한 번만 베팅'],
+    ['땡값', '땡으로 이기면 끝까지 남은 다른 사람(다이한 사람 제외)이 따로 냄. 1~9땡 판돈×배수, 장땡·13·18광땡 ×2, 38광땡 ×4. 땡잡이·암행어사에 잡히면 없음. 칩이 모자라면 있는 만큼만'],
+  ];
   const A = [['삥', '첫 베팅을 판돈만큼'], ['하프', '콜하고 판 전체의 절반만큼 더'], ['따당', '앞 사람 베팅의 두 배로'], ['콜 / 체크', '맞추기 / 그냥 넘기기'], ['다이', '포기']];
   openModal(`<h2>족보</h2><table class="rank-t">${R.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join('')}</table>
     <h2 style="margin-top:18px">베팅</h2><table class="rank-t">${A.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join('')}</table>
-    <p class="muted">한 장 받고 한 번, 두 장째 받고 한 번 베팅해요. 같은 족보면 판돈을 나눠요. 올인한 사람은 자기가 건 만큼만 먹어요(사이드팟).</p>
+    <h2 style="margin-top:18px">진행 방식 · 땡값 <span class="muted" style="font-size:13px">방장이 정해요</span></h2><table class="rank-t">${X.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join('')}</table>
+    <p class="muted">같은 족보면 판돈을 나눠요. 올인한 사람은 자기가 건 만큼만 먹어요(사이드팟).</p>
     <div style="text-align:right"><button class="btn gold" data-close>닫기</button></div>`);
 }
 let toastT = 0;

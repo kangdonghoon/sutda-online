@@ -80,7 +80,7 @@ const userRoom = new Map(); // uid → 방 코드 (한 계정은 한 방에만)
 function createRoom(hostId) {
   let code; do code = rid(4); while (rooms.has(code));
   const room = {
-    code, G: Sutda.createGame({ ante: 100, startChips: START_CHIPS, rake: Object.assign({}, RAKE) }), host: hostId,
+    code, G: Sutda.createGame({ ante: 100, startChips: START_CHIPS, rake: Object.assign({}, RAKE), mode: 'one', ttaeng: 5 }), host: hostId,
     autoNext: true, banned: new Set(), conns: new Map(), lastSeen: new Map(),
     lastActive: Date.now(), botKey: '', botDue: 0, showKey: '', showDue: 0, dirty: false, savedKey: '', leaving: new Set(), credits: new Map(),
   };
@@ -131,7 +131,7 @@ function persistHand(room) {
   for (const id of h.seats) {
     const uid = uidOf(id), p = player(room, id);
     if (!uid || !p) continue;
-    const gain = (h.result.pay && h.result.pay[id]) || 0;
+    const gain = ((h.result.pay && h.result.pay[id]) || 0) + (h.result.tg && h.result.tg.to === id ? h.result.tg.total : 0);
     store.recordHand(uid, p.chips, h.result.winners.includes(id), gain).catch(dbErr);
   }
   if (h.result.rake > 0) {
@@ -390,6 +390,17 @@ async function handle(body, ip) {
       G.ante = a; G.log.push(`판돈 ${a.toLocaleString()}로 변경`); G.v++; return ok();
     }
     case 'auto': room.autoNext = !!body.on; G.v++; return ok();
+    case 'mode': {
+      const m = body.mode === 'two' ? 'two' : 'one';
+      if (G.mode !== m) { G.mode = m; G.log.push(`진행 방식: ${m === 'two' ? '두 장 받고 한 번 베팅' : '한 장씩 받고 두 번 베팅'}${G.phase === 'bet' ? ' — 다음 판부터' : ''}`); G.v++; }
+      return ok();
+    }
+    case 'ttaeng': {
+      const t = Number(body.mult);
+      if (![0, 3, 5, 10].includes(t)) return [400, { error: '땡값 배수를 골라주세요' }];
+      if (G.ttaeng !== t) { G.ttaeng = t; G.log.push(t ? `땡값 판돈 ×${t}${G.phase === 'bet' ? ' — 다음 판부터' : ''}` : `땡값 없음${G.phase === 'bet' ? ' — 다음 판부터' : ''}`); G.v++; }
+      return ok();
+    }
   }
   return [400, { error: 'unknown' }];
 }

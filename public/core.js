@@ -116,6 +116,14 @@
   }
 
   // 수수료 계산. h.rk = 판 시작 때 고정한 설정 {rate(%), cap, min, folds}
+  // 땡값 = 판돈 × 배수 × (1~9땡 1배, 장땡·13·18광땡 2배, 38광땡 4배)
+  function ttaengAmount(rank, ante, mult) {
+    if (!(mult > 0)) return 0;
+    if (rank === 1000) return ante * mult * 4;
+    if (rank === 900 || rank === 810) return ante * mult * 2;
+    if (rank > 800 && rank < 810) return ante * mult;
+    return 0;
+  }
   // 받아준 사람이 없는 초과 베팅 (가장 많이 건 한 사람의 차액)
   function uncalled(contrib) {
     const v = Object.values(contrib || {}).sort((a, b) => b - a);
@@ -144,6 +152,8 @@
       v: 0, ante: (opts && opts.ante) || 100, startChips: (opts && opts.startChips) || 10000,
       players: [], phase: 'lobby', hand: null, sun: null, log: [], handNo: 0,
       rake: (opts && opts.rake) || null, rakeTotal: 0,
+      mode: (opts && opts.mode === 'two') ? 'two' : 'one',   // one: 한 장씩 2번 베팅, two: 두 장 받고 1번 베팅
+      ttaeng: (opts && opts.ttaeng) || 0,                      // 땡값 배수 (0 = 없음)
     };
   }
   function P(S, id) { return S.players.find(p => p.id === id); }
@@ -190,16 +200,23 @@
       no: S.handNo, seats, cards: {}, deck: shuffle(rng), round: 1, redeals: 0,
       folded: {}, allin: {}, bet: {}, contrib: {}, pot: 0, cur: 0, toAct: null, acted: {}, raises: 0,
       deadline: 0, result: null, deal: 1, lastAct: {}, rk: S.rake ? Object.assign({}, S.rake) : null,
+      mode: S.mode === 'two' ? 'two' : 'one', tg: S.ttaeng || 0,
     };
     seats.forEach(id => { h.contrib[id] = 0; h.bet[id] = 0; });
     S.phase = 'bet';
     log(S, `── ${h.no}판 시작 (판돈 ${S.ante}) ──`);
     for (const id of seats) pay(S, id, S.ante, true);
     seats.forEach(id => { h.bet[id] = 0; });
-    dealOne(S);
+    dealOpening(S);
     beginRound(S, now);
     bump(S);
     return true;
+  }
+  // 한 장 모드는 한 장만, 두 장 모드는 두 장을 받고 바로 마지막 베팅 라운드
+  function dealOpening(S) {
+    const h = S.hand;
+    dealOne(S);
+    if (h.mode === 'two') { dealOne(S); h.round = 2; } else h.round = 1;
   }
 
   function dealOne(S) {
@@ -333,6 +350,24 @@
     log(S, `${wn} 승리${pw.catchBy ? ' — ' + pw.catchBy + '!' : ''}`);
     Object.entries(payMap).forEach(([id, a]) => { if (!mainWinners.includes(id)) log(S, `${P(S, id).name} 사이드팟 +${a.toLocaleString()}`); });
     if (rake) log(S, `수수료 ${rake.toLocaleString()}`);
+    // 땡값: 땡(광땡 포함)으로 이기면 끝까지 남은(다이하지 않은) 다른 사람이 낸다 (잡힌 경우·공동 승리는 제외)
+    if (h.tg > 0 && mainWinners.length === 1 && !pw.catchBy) {
+      const w = mainWinners[0], each = ttaengAmount(evalHand(h.cards[w]).rank, S.ante, h.tg);
+      if (each > 0) {
+        const from = {}; let total = 0;
+        for (const id of ids) {          // ids = 다이하지 않은 사람
+          if (id === w) continue;
+          const p = P(S, id); if (!p) continue;
+          const a = Math.min(each, p.chips); if (a <= 0) continue;
+          p.chips -= a; from[id] = a; total += a;
+        }
+        if (total > 0) {
+          P(S, w).chips += total;
+          h.result.tg = { to: w, each, from, total };
+          log(S, `땡값! ${P(S, w).name} +${total.toLocaleString()} (각자 ${each.toLocaleString()})`);
+        }
+      }
+    }
     S.sun = mainWinners[0];
     S.phase = 'show';
   }
@@ -340,10 +375,10 @@
   function redeal(S, rng, now) {
     const h = S.hand;
     if (S.phase !== 'show' || !h || !h.result || h.result.type !== 'redeal') return false;
-    h.redeals++; h.deck = shuffle(rng); h.cards = {}; h.round = 1; h.result = null; h.deal++;
+    h.redeals++; h.deck = shuffle(rng); h.cards = {}; h.result = null; h.deal++;
     h.seats.forEach(id => { if (!h.folded[id]) h.allin[id] = P(S, id).chips === 0; });
     S.phase = 'bet';
-    dealOne(S); beginRound(S, now); bump(S);
+    dealOpening(S); beginRound(S, now); bump(S);
     return true;
   }
 
@@ -351,7 +386,7 @@
   function publicState(S, now) {
     const h = S.hand;
     const out = {
-      v: S.v, ph: S.phase, ante: S.ante, sun: S.sun, sc: S.startChips,
+      v: S.v, ph: S.phase, ante: S.ante, sun: S.sun, sc: S.startChips, mode: S.mode || 'one', tg: S.ttaeng || 0,
       pl: S.players.map(p => [p.id, p.name, p.chips, (p.bot ? 1 : 0) | (p.away ? 2 : 0)]),
       log: S.log.slice(-8),
     };
@@ -405,7 +440,7 @@
   }
 
   const api = {
-    MONTH_NAMES, MAX_PLAYERS, card, evalHand, pickWinners, checkRedeal, settle, rakeFor, shuffle,
+    MONTH_NAMES, MAX_PLAYERS, card, evalHand, pickWinners, checkRedeal, settle, rakeFor, ttaengAmount, shuffle,
     createGame, addPlayer, removePlayer, canStart, startHand, legal, act, autoAct, redeal,
     publicState, botDecide, ACT_NAMES,
   };
