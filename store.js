@@ -1,0 +1,142 @@
+// 저장소: DATABASE_URL이 있으면 Postgres(Neon), 없으면 메모리(로컬 개발용, 재시작 시 초기화)
+'use strict';
+
+const START_CHIPS = 10000;
+
+function mapUser(r) {
+  if (!r) return null;
+  const b = v => v === true || v === 't' || v === 'true' || v === 1;
+  return {
+    id: Number(r.id), username: r.username, nick: r.nick, pwHash: r.pw_hash, salt: r.salt,
+    chips: Number(r.chips), hands: Number(r.hands), wins: Number(r.wins), best: Number(r.best),
+    rebuys: Number(r.rebuys), banned: b(r.banned), createdAt: Number(r.created_at), lastSeen: Number(r.last_seen),
+  };
+}
+
+// ───────── Postgres ─────────
+class PgStore {
+  constructor(url, pgModule) {
+    const pg = pgModule || require('pg');
+    this.pool = new pg.Pool({ connectionString: url, max: 5, idleTimeoutMillis: 30000 });
+    // Neon은 쉬는 동안 연결을 끊는다. 처리 안 하면 프로세스가 죽는다.
+    this.pool.on('error', e => console.error('[db] idle client error:', e.message));
+    this.kind = 'postgres';
+  }
+  q(text, params) { return this.pool.query(text, params || []); }
+  async init() {
+    await this.q(`CREATE TABLE IF NOT EXISTS users (
+      id         SERIAL PRIMARY KEY,
+      username   TEXT NOT NULL UNIQUE,
+      nick       TEXT NOT NULL,
+      pw_hash    TEXT NOT NULL,
+      salt       TEXT NOT NULL,
+      chips      BIGINT NOT NULL DEFAULT ${START_CHIPS},
+      hands      INTEGER NOT NULL DEFAULT 0,
+      wins       INTEGER NOT NULL DEFAULT 0,
+      best       BIGINT NOT NULL DEFAULT 0,
+      rebuys     INTEGER NOT NULL DEFAULT 0,
+      banned     BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at BIGINT NOT NULL,
+      last_seen  BIGINT NOT NULL DEFAULT 0
+    )`);
+    await this.q(`CREATE TABLE IF NOT EXISTS sessions (
+      token_hash TEXT PRIMARY KEY,
+      user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      expires_at BIGINT NOT NULL
+    )`);
+    await this.q(`CREATE INDEX IF NOT EXISTS sessions_user_idx ON sessions(user_id)`);
+  }
+  async createUser({ username, nick, pwHash, salt }) {
+    try {
+      const r = await this.q(
+        `INSERT INTO users (username, nick, pw_hash, salt, created_at, last_seen) VALUES ($1, $2, $3, $4, $5, $5) RETURNING *`,
+        [username, nick, pwHash, salt, Date.now()]);
+      return mapUser(r.rows[0]);
+    } catch (e) {
+      if (e.code === '23505') return null; // 아이디 중복
+      throw e;
+    }
+  }
+  async userByName(username) { return mapUser((await this.q(`SELECT * FROM users WHERE username = $1`, [username])).rows[0]); }
+  async userById(id) { return mapUser((await this.q(`SELECT * FROM users WHERE id = $1`, [id])).rows[0]); }
+  async createSession(tokenHash, userId, expiresAt) {
+    await this.q(`INSERT INTO sessions (token_hash, user_id, expires_at) VALUES ($1, $2, $3)`, [tokenHash, userId, expiresAt]);
+  }
+  async sessionUser(tokenHash) {
+    const r = await this.q(
+      `SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = $1 AND s.expires_at > $2`,
+      [tokenHash, Date.now()]);
+    return mapUser(r.rows[0]);
+  }
+  async deleteSession(tokenHash) { await this.q(`DELETE FROM sessions WHERE token_hash = $1`, [tokenHash]); }
+  async deleteUserSessions(userId) { await this.q(`DELETE FROM sessions WHERE user_id = $1`, [userId]); }
+  async purgeSessions() { await this.q(`DELETE FROM sessions WHERE expires_at < $1`, [Date.now()]); }
+  // 판이 끝났을 때: 칩 저장 + 전적 누적
+  async recordHand(userId, chips, won, gain) {
+    await this.q(
+      `UPDATE users SET chips = $2, hands = hands + 1, wins = wins + $3, best = GREATEST(best, $4), last_seen = $5 WHERE id = $1`,
+      [userId, chips, won ? 1 : 0, gain, Date.now()]);
+  }
+  async setChips(userId, chips) { await this.q(`UPDATE users SET chips = $2, last_seen = $3 WHERE id = $1`, [userId, chips, Date.now()]); }
+  async rebuy(userId, chips) { await this.q(`UPDATE users SET chips = $2, rebuys = rebuys + 1 WHERE id = $1`, [userId, chips]); }
+  async setBanned(userId, banned) { await this.q(`UPDATE users SET banned = $2 WHERE id = $1`, [userId, !!banned]); }
+  async setNick(userId, nick) { await this.q(`UPDATE users SET nick = $2 WHERE id = $1`, [userId, nick]); }
+  async touch(userId) { await this.q(`UPDATE users SET last_seen = $2 WHERE id = $1`, [userId, Date.now()]); }
+  async listUsers(search) {
+    const r = search
+      ? await this.q(`SELECT * FROM users WHERE username ILIKE $1 OR nick ILIKE $1 ORDER BY last_seen DESC LIMIT 200`, ['%' + search + '%'])
+      : await this.q(`SELECT * FROM users ORDER BY last_seen DESC LIMIT 200`);
+    return r.rows.map(mapUser);
+  }
+  async ranking(limit) {
+    // 수익 = 현재 칩 - (가입 칩 + 충전 횟수 × 충전 칩)
+    const r = await this.q(
+      `SELECT *, chips - ${START_CHIPS} * (1 + rebuys) AS profit FROM users WHERE banned = FALSE AND hands > 0 ORDER BY profit DESC, hands DESC LIMIT $1`,
+      [limit]);
+    return r.rows.map(row => Object.assign(mapUser(row), { profit: Number(row.profit) }));
+  }
+}
+
+// ───────── 메모리 (DB 없이 로컬 실행할 때) ─────────
+class MemStore {
+  constructor() { this.users = new Map(); this.sessions = new Map(); this.seq = 0; this.kind = 'memory'; }
+  async init() {}
+  async createUser({ username, nick, pwHash, salt }) {
+    if ([...this.users.values()].some(u => u.username === username)) return null;
+    const now = Date.now();
+    const u = { id: ++this.seq, username, nick, pwHash, salt, chips: START_CHIPS, hands: 0, wins: 0, best: 0, rebuys: 0, banned: false, createdAt: now, lastSeen: now };
+    this.users.set(u.id, u); return { ...u };
+  }
+  async userByName(n) { const u = [...this.users.values()].find(x => x.username === n); return u ? { ...u } : null; }
+  async userById(id) { const u = this.users.get(Number(id)); return u ? { ...u } : null; }
+  async createSession(h, userId, exp) { this.sessions.set(h, { userId, exp }); }
+  async sessionUser(h) { const s = this.sessions.get(h); if (!s || s.exp <= Date.now()) return null; return this.userById(s.userId); }
+  async deleteSession(h) { this.sessions.delete(h); }
+  async deleteUserSessions(id) { for (const [h, s] of this.sessions) if (s.userId === id) this.sessions.delete(h); }
+  async purgeSessions() { const now = Date.now(); for (const [h, s] of this.sessions) if (s.exp < now) this.sessions.delete(h); }
+  async recordHand(id, chips, won, gain) { const u = this.users.get(id); if (!u) return; u.chips = chips; u.hands++; if (won) u.wins++; u.best = Math.max(u.best, gain); u.lastSeen = Date.now(); }
+  async setChips(id, chips) { const u = this.users.get(id); if (u) { u.chips = chips; u.lastSeen = Date.now(); } }
+  async rebuy(id, chips) { const u = this.users.get(id); if (u) { u.chips = chips; u.rebuys++; } }
+  async setBanned(id, b) { const u = this.users.get(id); if (u) u.banned = !!b; }
+  async setNick(id, nick) { const u = this.users.get(id); if (u) u.nick = nick; }
+  async touch(id) { const u = this.users.get(id); if (u) u.lastSeen = Date.now(); }
+  async listUsers(search) {
+    const s = (search || '').toLowerCase();
+    return [...this.users.values()].filter(u => !s || u.username.includes(s) || u.nick.toLowerCase().includes(s))
+      .sort((a, b) => b.lastSeen - a.lastSeen).slice(0, 200).map(u => ({ ...u }));
+  }
+  async ranking(limit) {
+    return [...this.users.values()].filter(u => !u.banned && u.hands > 0)
+      .map(u => ({ ...u, profit: u.chips - START_CHIPS * (1 + u.rebuys) }))
+      .sort((a, b) => b.profit - a.profit || b.hands - a.hands).slice(0, limit);
+  }
+}
+
+function createStore() {
+  const url = process.env.DATABASE_URL;
+  if (url) return new PgStore(url, process.env.PG_MODULE ? require(process.env.PG_MODULE) : undefined); // PG_MODULE: 테스트용
+  console.warn('[db] DATABASE_URL이 없어 메모리 저장소를 씁니다. 서버를 끄면 계정이 사라져요.');
+  return new MemStore();
+}
+
+module.exports = { createStore, PgStore, MemStore, START_CHIPS };

@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>섯다 관리자</title>
+<link href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0b2d23;--panel:rgba(5,22,17,.6);--ink:#f3ead7;--dim:#a9b8ad;--gold:#e3b54a;--gold2:#f5d27a;--line:rgba(243,234,215,.14);--bad:#e2685f;--ok:#9be3b5}
+*{box-sizing:border-box}
+body{margin:0;font-family:"Noto Sans KR",system-ui,sans-serif;background:var(--bg);color:var(--ink)}
+header{display:flex;align-items:center;gap:14px;padding:14px 20px;border-bottom:1px solid var(--line);background:rgba(0,0,0,.2)}
+header h1{font-family:"Black Han Sans";color:var(--gold2);margin:0;font-size:24px}
+header a{color:var(--dim);font-size:14px}
+main{max-width:1100px;margin:0 auto;padding:20px}
+section{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:18px}
+h2{margin:0 0 12px;font-size:16px;color:var(--gold2)}
+.bar{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+input,button{font:inherit;color:inherit}
+.inp{background:rgba(0,0,0,.3);border:1px solid var(--line);border-radius:8px;padding:8px 10px;outline:none}
+.inp:focus{border-color:var(--gold)}
+.btn{border:1px solid var(--line);background:rgba(255,255,255,.08);border-radius:8px;padding:8px 12px;cursor:pointer;font-weight:700}
+.btn:hover{background:rgba(255,255,255,.14)}
+.btn.gold{background:linear-gradient(180deg,var(--gold2),var(--gold));color:#3b2706;border-color:transparent}
+.btn.red{background:#5a221e;border-color:#7d2f29}
+.btn.sm{padding:5px 9px;font-size:12px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;color:var(--dim);font-weight:500;font-size:12px;padding:6px;border-bottom:1px solid var(--line)}
+td{padding:8px 6px;border-bottom:1px solid var(--line);vertical-align:middle}
+td.r{text-align:right;font-variant-numeric:tabular-nums}
+.chipIn{width:120px;text-align:right}
+.tag{font-size:11px;padding:2px 7px;border-radius:99px;background:rgba(255,255,255,.1);color:var(--dim);margin-left:4px}
+.tag.bad{background:#5a221e;color:#ffd0cb}.tag.gold{background:#5b4a1a;color:var(--gold2)}
+.muted{color:var(--dim);font-size:13px}
+.room{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--line)}
+.code{font-family:ui-monospace,Menlo,monospace;color:var(--gold2);font-weight:700;letter-spacing:.1em}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#081f18;border:1px solid var(--gold);padding:10px 16px;border-radius:10px;font-size:14px}
+.wrap{overflow-x:auto}
+</style>
+</head>
+<body>
+<header><h1>섯다 관리자</h1><span class="muted" id="who"></span><span style="flex:1"></span><a href="/">게임으로</a></header>
+<main id="main"><p class="muted">불러오는 중…</p></main>
+<script>
+(() => {
+'use strict';
+const $ = s => document.querySelector(s);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const won = n => (n || 0).toLocaleString('ko-KR');
+const ago = t => { if (!t) return '-'; const m = Math.floor((Date.now() - t) / 60000); return m < 1 ? '방금' : m < 60 ? m + '분 전' : m < 1440 ? Math.floor(m / 60) + '시간 전' : Math.floor(m / 1440) + '일 전'; };
+let sess = null; try { sess = JSON.parse(localStorage.getItem('sutda-sess')); } catch(e){}
+async function api(d){
+  const r = await fetch('/api', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(Object.assign({ sess }, d)) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || ('오류 ' + r.status));
+  return j;
+}
+function toast(t){ const el = document.createElement('div'); el.className = 'toast'; el.textContent = t; document.body.appendChild(el); setTimeout(() => el.remove(), 2400); }
+
+async function init(){
+  if (!sess) return deny('게임 화면에서 먼저 로그인하세요.');
+  let me; try { me = await api({ t: 'me' }); } catch(e){ return deny('게임 화면에서 다시 로그인하세요.'); }
+  if (!me.user.admin) return deny('관리자 계정이 아니에요. 서버의 ADMIN_USERS 환경변수에 아이디를 넣어야 해요.');
+  $('#who').textContent = '@' + me.user.username;
+  $('#main').innerHTML = `
+    <section><h2>회원</h2>
+      <div class="bar"><input id="q" class="inp" placeholder="아이디·닉네임 검색" style="flex:1;min-width:180px"><button class="btn" id="qBtn">검색</button><button class="btn" id="reload">새로고침</button></div>
+      <div class="wrap"><table><thead><tr><th>회원</th><th>방</th><th style="text-align:right">판 / 승</th><th style="text-align:right">충전</th><th>마지막 접속</th><th>칩</th><th></th></tr></thead><tbody id="users"></tbody></table></div>
+    </section>
+    <section><h2>열린 방</h2><div id="rooms" class="muted">불러오는 중…</div></section>`;
+  $('#qBtn').onclick = loadUsers; $('#reload').onclick = () => { loadUsers(); loadRooms(); };
+  $('#q').addEventListener('keydown', e => { if (e.key === 'Enter') loadUsers(); });
+  $('#users').addEventListener('click', onUserClick);
+  $('#rooms').addEventListener('click', onRoomClick);
+  loadUsers(); loadRooms();
+  setInterval(loadRooms, 5000);
+}
+function deny(msg){ $('#main').innerHTML = `<section><h2>들어갈 수 없어요</h2><p>${esc(msg)}</p><a class="btn gold" href="/" style="text-decoration:none">게임으로 가기</a></section>`; }
+
+async function loadUsers(){
+  try {
+    const list = await api({ t: 'admin.users', search: $('#q').value.trim() });
+    $('#users').innerHTML = list.map(u => `<tr data-id="${u.id}">
+      <td><b>${esc(u.nick)}</b> <span class="muted">@${esc(u.username)}</span>${u.admin ? '<span class="tag gold">관리자</span>' : ''}${u.banned ? '<span class="tag bad">정지</span>' : ''}</td>
+      <td>${u.room ? `<span class="code">${esc(u.room.toUpperCase())}</span>` : '<span class="muted">-</span>'}</td>
+      <td class="r">${won(u.hands)} / ${won(u.wins)}</td>
+      <td class="r">${won(u.rebuys)}</td>
+      <td class="muted">${ago(u.lastSeen)}</td>
+      <td><input class="inp chipIn" value="${u.chips}" inputmode="numeric"> <button class="btn sm" data-a="chips">저장</button></td>
+      <td>${u.admin ? '' : `<button class="btn sm ${u.banned ? '' : 'red'}" data-a="ban" data-v="${u.banned ? 0 : 1}">${u.banned ? '정지 해제' : '정지'}</button>`}</td>
+    </tr>`).join('') || '<tr><td colspan="7" class="muted">회원이 없어요</td></tr>';
+  } catch(e){ toast(e.message); }
+}
+async function onUserClick(e){
+  const b = e.target.closest('[data-a]'); if (!b) return;
+  const tr = b.closest('tr'), id = Number(tr.dataset.id);
+  try {
+    if (b.dataset.a === 'chips') {
+      const v = Number(tr.querySelector('.chipIn').value.replace(/,/g, ''));
+      await api({ t: 'admin.chips', id, chips: v }); toast('칩을 저장했어요');
+    } else if (b.dataset.a === 'ban') {
+      await api({ t: 'admin.ban', id, banned: b.dataset.v === '1' }); toast(b.dataset.v === '1' ? '정지했어요' : '정지를 풀었어요');
+    }
+    loadUsers();
+  } catch(err){ toast(err.message); }
+}
+async function loadRooms(){
+  try {
+    const list = await api({ t: 'admin.rooms' });
+    $('#rooms').innerHTML = list.length ? list.map(r => `<div class="room"><div><span class="code">${esc(r.code.toUpperCase())}</span>
+        <span class="muted"> · ${r.phase === 'bet' ? '게임 중' : '대기'} · ${r.hands}판</span>
+        <div style="margin-top:4px">${r.players.map(p => `${esc(p.name)}${p.host ? '<span class="tag gold">방장</span>' : ''}${p.bot ? '<span class="tag">봇</span>' : ''}${p.away ? '<span class="tag">자리비움</span>' : ''} <span class="muted">${won(p.chips)}</span>`).join(' · ')}</div></div>
+        <button class="btn sm red" data-close="${esc(r.code)}">방 닫기</button></div>`).join('') : '열린 방이 없어요';
+  } catch(e){}
+}
+async function onRoomClick(e){
+  const b = e.target.closest('[data-close]'); if (!b) return;
+  if (b.dataset.confirm !== '1') { b.dataset.confirm = '1'; b.textContent = '정말 닫기'; return; }
+  try { await api({ t: 'admin.close', code: b.dataset.close }); toast('방을 닫았어요'); loadRooms(); } catch(err){ toast(err.message); }
+}
+init();
+})();
+</script>
+</body>
+</html>

@@ -10,11 +10,10 @@ const store = {
 };
 const rid = n => { const a = 'abcdefghjkmnpqrstuvwxyz23456789'; const b = crypto.getRandomValues(new Uint8Array(n)); let s=''; for (let i=0;i<n;i++) s += a[b[i] % a.length]; return s; };
 
-// ───────── 신원 ─────────
-let me = store.get('sutda-me');
-function newIdentity(){ me = { pid: 'u' + rid(14), tok: rid(32) }; store.set('sutda-me', me); }
-if (!me || !me.pid || !me.tok) newIdentity();
-let myName = store.get('sutda-nick') || '';
+// ───────── 계정 ─────────
+let sess = store.get('sutda-sess');
+let user = null;           // 로그인한 내 정보
+let pendingJoin = null;    // 로그인 후 들어갈 방
 
 // ───────── 상태 ─────────
 let code = null, es = null, PS = null, psAt = 0, inGame = false;
@@ -22,24 +21,84 @@ let chatLines = [];
 
 async function api(d, quiet){
   try {
-    const r = await fetch('/api', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(Object.assign({ pid: me.pid, tok: me.tok, room: code }, d)) });
+    const r = await fetch('/api', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(Object.assign({ sess, room: code }, d)) });
     const j = await r.json().catch(() => ({}));
+    if (r.status === 401 && sess && d.t !== 'login' && d.t !== 'signup') { setLoggedOut(); if (!quiet) toast('다시 로그인해 주세요'); return { ok: false, status: 401 }; }
     if (!r.ok) { if (!quiet && j.error) toast(j.error); return { ok: false, status: r.status, ...j }; }
-    return { ok: true, ...j };
+    return { ok: true, data: j, ...(Array.isArray(j) ? {} : j) };
   } catch(e){ if (!quiet) toast('서버에 연결할 수 없어요'); return { ok: false, status: 0 }; }
 }
 
-// ───────── 입장 화면 ─────────
-$('#nick').value = myName;
-function needNick(){
-  const v = $('#nick').value.trim().slice(0,10);
-  if (!v) { $('#nick').focus(); toast('닉네임을 먼저 입력하세요'); return null; }
-  myName = v; store.set('sutda-nick', v); return v;
+// ───────── 로그인 / 가입 ─────────
+let authMode = 'login';
+document.querySelectorAll('.tab').forEach(b => b.onclick = () => {
+  authMode = b.dataset.tab;
+  document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x === b));
+  document.querySelectorAll('.signup-only').forEach(x => x.classList.toggle('hidden', authMode !== 'signup'));
+  $('#aSubmit').textContent = authMode === 'login' ? '로그인' : '가입하고 시작';
+  $('#aPw').autocomplete = authMode === 'login' ? 'current-password' : 'new-password';
+});
+$('#authForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const username = $('#aUser').value.trim().toLowerCase(), password = $('#aPw').value;
+  if (authMode === 'signup') {
+    if (password !== $('#aPw2').value) return toast('비밀번호 확인이 달라요');
+    if (!$('#aNick').value.trim()) return toast('닉네임을 입력하세요');
+  }
+  const btn = $('#aSubmit'); btn.disabled = true;
+  const r = await api({ t: authMode, username, password, nick: $('#aNick').value.trim() });
+  btn.disabled = false;
+  if (!r.ok) return;
+  sess = r.sess; store.set('sutda-sess', sess); user = r.user;
+  $('#aPw').value = ''; $('#aPw2').value = '';
+  setLoggedIn();
+  if (pendingJoin) { const c = pendingJoin; pendingJoin = null; joinTable(c); }
+});
+function setLoggedOut(){
+  sess = null; user = null; store.del('sutda-sess');
+  if (inGame) leaveGame(true);
+  renderEntry();
 }
+function setLoggedIn(){ renderEntry(); }
+async function refreshMe(){
+  if (!sess) return null;
+  const r = await api({ t: 'me' }, true);
+  if (!r.ok) { if (r.status === 401) setLoggedOut(); return null; }
+  user = r.user; renderEntry(); return r;
+}
+function renderEntry(){
+  const li = !!(sess && user);
+  $('#authBox').classList.toggle('hidden', li);
+  $('#lobbyBoxes').classList.toggle('hidden', !li);
+  const pb = $('#profileBox');
+  pb.classList.toggle('hidden', !li);
+  if (li) {
+    const rate = user.hands ? Math.round(user.wins / user.hands * 100) : 0;
+    pb.innerHTML = `<div class="prof"><div class="who"><b>${esc(user.nick)}</b> <span class="muted">@${esc(user.username)}</span>
+        <div class="stats"><span>칩 <b>${won(user.chips)}</b></span><span>${won(user.hands)}판 ${won(user.wins)}승 (${rate}%)</span><span>최고 <b>${won(user.best)}</b></span></div></div>
+      <div class="row" style="flex:0 0 auto">${user.admin ? '<a class="hbtn" href="/admin" style="text-decoration:none;color:var(--gold2)">관리자</a>' : ''}<button class="hbtn" id="btnNick">닉네임 변경</button><button class="hbtn" id="btnLogout">로그아웃</button></div></div>`;
+    $('#btnLogout').onclick = async () => { await api({ t: 'logout' }, true); setLoggedOut(); };
+    $('#btnNick').onclick = () => {
+      openModal(`<h2>닉네임 변경</h2><input id="nNick" class="inp" maxlength="10" value="${esc(user.nick)}"><div class="row" style="margin-top:14px"><button class="btn" data-close>취소</button><button class="btn gold" id="nOk">변경</button></div>`);
+      $('#nOk').onclick = async () => { const v = $('#nNick').value.trim(); if (!v) return; const r = await api({ t: 'nick', nick: v }); if (r.ok) { closeModal(); refreshMe(); } };
+    };
+  }
+  showInvite();
+}
+async function loadRanking(){
+  try {
+    const r = await fetch('/api', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ t: 'ranking' }) });
+    const list = await r.json();
+    if (!Array.isArray(list) || !list.length) { $('#ranking').innerHTML = '아직 기록이 없어요. 첫 판을 돌려보세요!'; return; }
+    $('#ranking').innerHTML = `<table class="rank">${list.map((u, i) => `<tr><td class="n">${i + 1}</td><td>${esc(u.nick)}</td>
+      <td class="r ${u.profit >= 0 ? 'plus' : 'minus'}">${u.profit >= 0 ? '+' : ''}${won(u.profit)}</td><td class="r muted">${won(u.hands)}판</td></tr>`).join('')}</table>`;
+  } catch(e){ $('#ranking').textContent = '랭킹을 불러오지 못했어요'; }
+}
+
+// ───────── 방 만들기 / 목록 ─────────
 async function create(solo){
-  if (!needNick()) return;
-  let r = await api({ t: 'create', nm: myName, solo: !!solo });
-  if (!r.ok && r.status === 403) { newIdentity(); r = await api({ t: 'create', nm: myName, solo: !!solo }); }
+  if (!user) return toast('먼저 로그인하세요');
+  const r = await api({ t: 'create', solo: !!solo });
   if (r.ok) joinTable(r.code);
 }
 $('#btnCreate').onclick = () => create(false);
@@ -61,37 +120,34 @@ async function loadTables(){
 }
 setInterval(loadTables, 4000);
 
+function inviteCode(){ const m = /^#([a-z0-9]{4})$/i.exec(location.hash); return m ? m[1].toLowerCase() : null; }
 function showInvite(){
-  const m = /^#([a-z0-9]{4})$/i.exec(location.hash);
-  const box = $('#inviteBox');
-  if (!m) { box.classList.add('hidden'); return false; }
-  const c = m[1].toLowerCase();
+  const c = inviteCode(), box = $('#inviteBox');
+  if (!c || inGame) { box.classList.add('hidden'); return false; }
   box.innerHTML = `<h3>초대받은 방 <span class="code">${esc(c.toUpperCase())}</span></h3>
-    <div class="muted" style="margin-bottom:10px">닉네임을 입력하고 입장하세요.</div>
-    <button class="btn gold" id="btnInvite" style="width:100%">이 방으로 입장</button>`;
+    <div class="muted" style="margin-bottom:10px">${user ? '아래 버튼을 눌러 입장하세요.' : '로그인하면 바로 이 방으로 들어가요. 계정이 없으면 회원가입부터 해주세요.'}</div>
+    ${user ? '<button class="btn gold" id="btnInvite" style="width:100%">이 방으로 입장</button>' : ''}`;
   box.classList.remove('hidden');
-  $('#btnInvite').onclick = () => joinTable(c);
+  if (user) $('#btnInvite').onclick = () => joinTable(c);
+  else pendingJoin = c;
   $('#joinCode').value = c;
   return true;
 }
-function showResume(){
-  const last = store.get('sutda-last');
+function showResume(roomCode){
   const box = $('#resumeBox');
   box.classList.add('hidden');
-  if (!last || !last.code || Date.now() - last.t > 6 * 3600e3 || location.hash) return;
-  box.innerHTML = `<h3>이어하기</h3><div class="row" style="align-items:center"><div class="muted" style="flex:2">최근 방 <span class="code">${esc(last.code.toUpperCase())}</span></div><button class="btn" id="btnRejoin">다시 입장</button></div>`;
+  if (!roomCode || inviteCode()) return;
+  box.innerHTML = `<h3>이어하기</h3><div class="row" style="align-items:center"><div class="muted" style="flex:2">앉아 있던 방 <span class="code">${esc(roomCode.toUpperCase())}</span></div><button class="btn gold" id="btnRejoin">돌아가기</button></div>`;
   box.classList.remove('hidden');
-  $('#btnRejoin').onclick = () => joinTable(last.code);
+  $('#btnRejoin').onclick = () => joinTable(roomCode);
 }
 
 // ───────── 방 입장 / 연결 ─────────
 async function joinTable(c){
-  if (!needNick()) return;
+  if (!user) { pendingJoin = c; return toast('먼저 로그인하세요'); }
   code = c.toLowerCase();
-  let r = await api({ t: 'join', nm: myName });
-  if (!r.ok && r.status === 403 && /인증/.test(r.error || '')) { newIdentity(); r = await api({ t: 'join', nm: myName }); }
+  const r = await api({ t: 'join' });
   if (!r.ok) { code = null; return; }
-  store.set('sutda-last', { code, t: Date.now() });
   try { history.replaceState(null, '', '#' + code); } catch(e){ location.hash = code; }
   inGame = true; PS = null; chatLines = [];
   $('#entry').classList.add('hidden'); $('#game').classList.remove('hidden');
@@ -102,19 +158,20 @@ async function joinTable(c){
 }
 function openStream(){
   if (es) es.close();
-  es = new EventSource(`/events?room=${encodeURIComponent(code)}&pid=${encodeURIComponent(me.pid)}&tok=${encodeURIComponent(me.tok)}`);
+  es = new EventSource(`/events?room=${encodeURIComponent(code)}&sess=${encodeURIComponent(sess)}`);
   es.onopen = () => netState(true);
   es.addEventListener('st', e => {
     try { PS = JSON.parse(e.data); psAt = Date.now(); } catch(err){ return; }
     netState(true); render();
   });
   es.addEventListener('ch', e => { try { const d = JSON.parse(e.data); chatLines.push({ nm: d.nm, x: d.x }); if (chatLines.length > 60) chatLines.shift(); renderLog(); } catch(err){} });
-  es.addEventListener('kick', () => { toast('방장이 내보냈어요'); leaveGame(true); });
+  es.addEventListener('kick', () => { toast('방에서 내보내졌어요'); leaveGame(true); });
+  es.addEventListener('closed', () => { toast('관리자가 방을 닫았어요'); leaveGame(true); });
   es.onerror = async () => {
     netState(false);
-    if (es && es.readyState === 2) { // 서버가 거절함 → 방이 사라졌는지 확인
-      const r = await api({ t: 'join', nm: myName }, true);
-      if (!r.ok && r.status === 404) { toast('방이 닫혔어요'); leaveGame(true); }
+    if (es && es.readyState === 2) {
+      const r = await api({ t: 'join' }, true);
+      if (!r.ok && (r.status === 404 || r.status === 403)) { toast(r.status === 404 ? '방이 닫혔어요' : '들어갈 수 없는 방이에요'); leaveGame(true); }
       else if (r.ok && inGame) setTimeout(openStream, 1500);
     }
   };
@@ -126,10 +183,11 @@ function leaveGame(silent){
   inGame = false; code = null; PS = null;
   try { history.replaceState(null, '', location.pathname); } catch(e){}
   $('#game').classList.add('hidden'); $('#entry').classList.remove('hidden');
-  if (silent) store.del('sutda-last');
-  showInvite(); showResume(); loadTables();
+  $('#resumeBox').classList.add('hidden');
+  setTimeout(() => { refreshMe(); loadRanking(); }, 300);
+  renderEntry(); loadTables();
 }
-$('#btnLeave').onclick = () => confirmBox('방에서 나갈까요?', '진행 중인 판이 있으면 다이 처리돼요.', '나가기', () => leaveGame(false));
+$('#btnLeave').onclick = () => confirmBox('방에서 나갈까요?', '진행 중인 판이 있으면 다이 처리돼요. 칩은 계정에 저장돼요.', '나가기', () => leaveGame(false));
 $('#btnCopy').onclick = async () => {
   const link = location.origin + location.pathname + '#' + code;
   try { await navigator.clipboard.writeText(link); toast('초대 링크를 복사했어요'); } catch(e){ toast(link); }
@@ -158,7 +216,7 @@ let lastCardsKey = '';
 function render(){
   if (!inGame) return;
   const s = PS;
-  const myId = me.pid;
+  const myId = s ? s.you : null;
   renderHostbar();
   if (!s) {
     $('#seats').innerHTML = '';
@@ -288,7 +346,7 @@ function render(){
 }
 function renderHostbar(){
   const hb = $('#hostbar'), s = PS;
-  if (!s || s.host !== me.pid) { hb.classList.add('hidden'); hb.dataset.sig = ''; return; }
+  if (!s || s.host !== s.you) { hb.classList.add('hidden'); hb.dataset.sig = ''; return; }
   hb.classList.remove('hidden');
   const redealPending = s.ph === 'show' && s.h && s.h.res && s.h.res.type === 'redeal';
   const sig = [s.ph, s.ante, s.auto, s.pl.length, s.canStart, redealPending].join('|');
@@ -366,6 +424,13 @@ function toast(t){
 }
 
 // ───────── 시작 ─────────
-if (showInvite() && myName) { const m = /^#([a-z0-9]{4})$/i.exec(location.hash); joinTable(m[1]); }
-showResume(); loadTables();
+(async () => {
+  renderEntry(); loadTables(); loadRanking();
+  if (!sess) { $('#authBox').classList.remove('hidden'); return; }
+  const r = await refreshMe();
+  if (!r) { renderEntry(); return; }
+  const c = inviteCode();
+  if (c) joinTable(c);
+  else if (r.room) showResume(r.room);
+})();
 })();

@@ -45,6 +45,23 @@ input,select{font:inherit}
 .muted{color:var(--dim);font-size:13px}
 .note{font-size:12px;color:var(--dim);line-height:1.6;margin-top:10px}
 
+.tabs{display:flex;gap:6px;margin-bottom:14px}
+.tab{flex:1;padding:10px;border-radius:10px;border:1px solid var(--line);background:rgba(255,255,255,.04);font-weight:700;color:var(--dim)}
+.tab.on{background:rgba(227,181,74,.15);border-color:var(--gold);color:var(--gold2)}
+.prof{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.prof .who{flex:1;min-width:160px}
+.prof .who b{font-size:18px}
+.stats{display:flex;gap:16px;margin-top:6px;font-size:13px;color:var(--dim)}
+.stats b{color:var(--gold2);font-size:15px}
+.stats span,.prof .hbtn{white-space:nowrap}
+.prof .row>*{flex:0 0 auto}
+.rank{width:100%;border-collapse:collapse;font-size:14px}
+.rank td{padding:6px 4px;border-bottom:1px solid var(--line)}
+.rank td.n{width:28px;color:var(--gold2);font-weight:900}
+.rank td.r{text-align:right;font-variant-numeric:tabular-nums}
+.plus{color:#9be3b5}.minus{color:var(--bad)}
+.modal input.inp{width:100%}
+
 /* ── 테이블 ── */
 #game{display:grid;grid-template-columns:1fr 300px;grid-template-rows:auto 1fr;min-height:100vh}
 header{grid-column:1/-1;display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid var(--line);background:rgba(0,0,0,.18);flex-wrap:wrap}
@@ -160,29 +177,39 @@ aside h4{margin:0;padding:12px 14px 6px;font-size:12px;color:var(--dim);letter-s
 <section id="entry">
   <h1 class="title">섯다</h1>
   <div class="sub">친구들과 같이 하는 2장 섯다. 칩은 가짜예요.</div>
-  <div id="inviteBox" class="card-box hidden"></div>
 
-  <div class="field">
-    <label for="nick">닉네임</label>
-    <input id="nick" class="inp" maxlength="10" placeholder="예: 타짜고니">
+  <div id="authBox" class="card-box hidden">
+    <div class="tabs"><button class="tab on" data-tab="login">로그인</button><button class="tab" data-tab="signup">회원가입</button></div>
+    <form id="authForm" autocomplete="on">
+      <div class="field"><label for="aUser">아이디</label><input id="aUser" class="inp" maxlength="16" autocomplete="username" placeholder="영문 소문자·숫자 3~16자" autocapitalize="none"></div>
+      <div class="field"><label for="aPw">비밀번호</label><input id="aPw" class="inp" type="password" maxlength="64" autocomplete="current-password" placeholder="6자 이상"></div>
+      <div class="field signup-only hidden"><label for="aPw2">비밀번호 확인</label><input id="aPw2" class="inp" type="password" maxlength="64" autocomplete="new-password"></div>
+      <div class="field signup-only hidden"><label for="aNick">닉네임</label><input id="aNick" class="inp" maxlength="10" placeholder="게임에서 보이는 이름"></div>
+      <button class="btn gold" id="aSubmit" style="width:100%">로그인</button>
+    </form>
   </div>
 
+  <div id="profileBox" class="card-box hidden"></div>
+  <div id="inviteBox" class="card-box hidden"></div>
   <div id="resumeBox" class="card-box hidden"></div>
 
-  <div class="card-box">
-    <h3>새 방 만들기</h3>
-    <div class="row"><button id="btnCreate" class="btn gold">방 만들기</button><button id="btnSolo" class="btn">봇이랑 연습</button></div>
-    <div class="note" id="netNote">패는 서버가 섞고 나눠요. 각자 자기 패만 받아요. 방을 만들면 초대 링크가 생겨요.</div>
+  <div id="lobbyBoxes" class="hidden">
+    <div class="card-box">
+      <h3>새 방 만들기</h3>
+      <div class="row"><button id="btnCreate" class="btn gold">방 만들기</button><button id="btnSolo" class="btn">봇이랑 연습</button></div>
+      <div class="note">패는 서버가 섞고 나눠요. 칩과 전적은 계정에 저장돼요.</div>
+    </div>
+    <div class="card-box">
+      <h3>방 들어가기</h3>
+      <div class="row">
+        <input id="joinCode" class="inp" maxlength="4" placeholder="방 코드 4자리" style="text-transform:lowercase">
+        <button id="btnJoin" class="btn" style="flex:0 0 100px">입장</button>
+      </div>
+      <div style="margin-top:12px" class="tables" id="tables"><div class="muted">열린 방을 찾는 중…</div></div>
+    </div>
   </div>
 
-  <div class="card-box">
-    <h3>방 들어가기</h3>
-    <div class="row">
-      <input id="joinCode" class="inp" maxlength="4" placeholder="방 코드 4자리" style="text-transform:lowercase">
-      <button id="btnJoin" class="btn" style="flex:0 0 100px">입장</button>
-    </div>
-    <div style="margin-top:12px" class="tables" id="tables"><div class="muted">열린 방을 찾는 중…</div></div>
-  </div>
+  <div class="card-box"><h3>랭킹 <span class="muted" style="font-weight:400">· 수익 순</span></h3><div id="ranking" class="muted">불러오는 중…</div></div>
 </section>
 
 <!-- 게임 -->
