@@ -14,7 +14,7 @@ const rid = n => { const a = 'abcdefghjkmnpqrstuvwxyz23456789'; const b = crypto
 let sess = store.get('sutda-sess');
 let user = null;           // 로그인한 내 정보
 let pendingJoin = null;    // 로그인 후 들어갈 방
-let myReq = null;          // 대기 중인 내 칩 충전 요청 {amount}
+let myReq = null;          // 대기 중인 내 칩 요청 {amount, kind: 'charge'|'return'}
 
 // ───────── 상태 ─────────
 let code = null, es = null, PS = null, psAt = 0, inGame = false;
@@ -76,8 +76,8 @@ function renderEntry(){
   if (li) {
     pb.innerHTML = `<div class="prof"><div class="who"><b>${esc(user.nick)}</b> <span class="muted">@${esc(user.username)}</span>
         <div class="stats"><span>칩 <b>${won(user.chips)}</b></span></div>
-        ${myReq ? `<div class="reqline">칩 ${won(myReq.amount)} 충전 요청을 관리자가 확인하고 있어요</div>` : ''}</div>
-      <div class="row" style="flex:0 0 auto">${user.admin ? '<a class="hbtn" href="/admin" style="text-decoration:none;color:var(--red);font-weight:700">관리자</a>' : ''}<button class="hbtn" id="btnChip">${myReq ? '충전 대기 중' : '칩 충전'}</button><button class="hbtn" id="btnNick">닉네임 변경</button><button class="hbtn" id="btnLogout">로그아웃</button></div></div>`;
+        ${myReq ? `<div class="reqline">칩 ${won(myReq.amount)} ${reqWord()} 요청을 관리자가 확인하고 있어요</div>` : ''}</div>
+      <div class="row" style="flex:0 0 auto">${user.admin ? '<a class="hbtn" href="/admin" style="text-decoration:none;color:var(--red);font-weight:700">관리자</a>' : ''}<button class="hbtn" id="btnChip">${myReq ? reqWord() + ' 대기 중' : '칩 충전·반납'}</button><button class="hbtn" id="btnNick">닉네임 변경</button><button class="hbtn" id="btnLogout">로그아웃</button></div></div>`;
     $('#btnLogout').onclick = async () => { await api({ t: 'logout' }, true); setLoggedOut(); };
     $('#btnChip').onclick = openChipModal;
     $('#btnNick').onclick = () => {
@@ -185,8 +185,9 @@ function openStream(){
   es.addEventListener('chip', e => {
     let d; try { d = JSON.parse(e.data); } catch(err){ return; }
     myReq = null;
-    if (d.status === 'approved') toast(d.later ? `칩 ${won(d.amount)} 충전이 승인됐어요. 이번 판이 끝나면 들어와요` : `칩 ${won(d.amount)} 충전이 승인됐어요!`);
-    else toast('칩 충전 요청이 거절됐어요');
+    const w = d.kind === 'return' ? '반납' : '충전';
+    if (d.status === 'approved') toast(d.kind === 'return' ? `칩 ${won(d.amount)} 반납이 처리됐어요` : d.later ? `칩 ${won(d.amount)} 충전이 승인됐어요. 이번 판이 끝나면 들어와요` : `칩 ${won(d.amount)} 충전이 승인됐어요!`);
+    else toast(`칩 ${w} 요청이 거절됐어요`);
   });
   es.addEventListener('closed', () => { toast('관리자가 방을 닫았어요'); leaveGame(true); });
   es.onerror = async () => {
@@ -363,7 +364,7 @@ function render(){
   const myId = s ? s.you : null;
   if (s) myReq = s.req || null;
   const practice = !!(s && s.practice);
-  const rb = practice ? ['연습 칩 충전', '연습 충전'] : (myReq ? ['충전 대기 중', '대기 중'] : ['칩 충전', '충전']);
+  const rb = practice ? ['연습 칩 충전', '연습 충전'] : (myReq ? [reqWord() + ' 대기 중', '대기 중'] : ['칩 충전·반납', '칩']);
   $('#btnRebuy .t-l').textContent = rb[0]; $('#btnRebuy .t-s').textContent = rb[1];
   $('#btnCopy').classList.toggle('hidden', practice);
   $('#hCode').textContent = practice ? '봇 연습' : (code || '').toUpperCase();
@@ -508,7 +509,7 @@ function render(){
     else if (mine && mine.length === 1) { const k = Sutda.card(mine[0]); hn = `${k.m}월${k.kind === 'gwang' ? ' 광' : ''}`; }
     if (h && [0, 1].some(k => pendingCards.has(`${handKey}:${myId}:${k}`))) hn = ''; // 카드가 도착한 뒤에 족보 공개
     let status = '';
-    if (!inHand(myId)) status = mp.chips <= 0 ? (practice ? '연습 칩이 없어요 — 위의 [연습 칩 충전]' : myReq ? '칩 충전 승인을 기다리는 중' : '칩이 없어요 — 위의 [칩 충전]으로 요청하세요') : (ph === 'bet' ? '다음 판부터 참여해요' : '');
+    if (!inHand(myId)) status = mp.chips <= 0 ? (practice ? '연습 칩이 없어요 — 위의 [연습 칩 충전]' : myReq && myReq.kind !== 'return' ? '칩 충전 승인을 기다리는 중' : '칩이 없어요 — 위의 [칩 충전]으로 요청하세요') : (ph === 'bet' ? '다음 판부터 참여해요' : '');
     else if (folded(myId)) status = '다이했어요';
     else if (allin(myId)) status = '올인!';
     else if (myTurn) status = '<b style="color:var(--red)">내 차례</b>';
@@ -658,35 +659,56 @@ document.addEventListener('click', e => {
 
 // ───────── 칩 충전 요청 ─────────
 const REQ_AMOUNTS = [10000, 30000, 50000, 100000];
-function openChipModal(){
+function reqWord(){ return myReq && myReq.kind === 'return' ? '반납' : '충전'; }
+function myChipsNow(){
+  const mp = PS && !PS.practice && (PS.pl || []).find(p => p[0] === PS.you);
+  return mp ? mp[2] : (user ? user.chips : 0);
+}
+function openChipModal(tab){
   if (!user) return toast('먼저 로그인하세요');
   if (myReq) {
-    openModal(`<h2>칩 충전 요청</h2><p>칩 <b>${won(myReq.amount)}</b> 충전 요청을 관리자가 확인하고 있어요.<br><span class="muted">승인되면 바로 알려드려요.</span></p>
+    const w = reqWord();
+    openModal(`<h2>칩 ${w} 요청</h2><p>칩 <b>${won(myReq.amount)}</b> ${w} 요청을 관리자가 확인하고 있어요.<br><span class="muted">처리되면 바로 알려드려요.</span></p>
       <div class="row"><button class="btn" data-close>닫기</button><button class="btn red" id="crCancel">요청 취소</button></div>`);
     $('#crCancel').onclick = async () => {
       const r = await api({ t: 'chipCancel' });
-      if (r.ok || r.status === 404) { myReq = null; closeModal(); toast('충전 요청을 취소했어요'); renderEntry(); render(); }
+      if (r.ok || r.status === 404) { myReq = null; closeModal(); toast(`${w} 요청을 취소했어요`); renderEntry(); render(); }
     };
     return;
   }
-  openModal(`<h2>칩 충전 요청</h2>
-    <p class="muted" style="margin-top:0">관리자가 승인하면 칩이 들어와요. 게임 중이면 그 판이 끝난 뒤에 들어와요.</p>
-    <div class="amts">${REQ_AMOUNTS.map((a, i) => `<label class="amt"><input type="radio" name="amt" value="${a}" ${i === 0 ? 'checked' : ''}><span>${won(a)}</span></label>`).join('')}</div>
+  const ret = tab === 'return', have = myChipsNow();
+  openModal(`<div class="tabs ctabs"><button class="tab ${ret ? '' : 'on'}" data-ct="charge">충전 요청</button><button class="tab ${ret ? 'on' : ''}" data-ct="return">반납 요청</button></div>
+    ${ret ? `<p class="muted" style="margin-top:0">반납할 칩을 적어 보내면 관리자가 확인하고 가져가요. 게임 중이면 그 판이 끝난 뒤에 처리돼요.</p>
+      <div class="muted" style="margin-bottom:6px">지금 가진 칩 <b style="color:var(--ink)">${won(have)}</b></div>
+      <div class="row" style="gap:6px;margin-bottom:10px"><input id="crAmt" class="inp" inputmode="numeric" placeholder="반납할 칩" style="flex:1"><button class="btn" id="crAll" type="button">전부</button></div>`
+    : `<p class="muted" style="margin-top:0">관리자가 승인하면 칩이 들어와요. 게임 중이면 그 판이 끝난 뒤에 들어와요.</p>
+      <div class="amts">${REQ_AMOUNTS.map((a, i) => `<label class="amt"><input type="radio" name="amt" value="${a}" ${i === 0 ? 'checked' : ''}><span>${won(a)}</span></label>`).join('')}</div>`}
     <input id="crNote" class="inp" maxlength="40" placeholder="관리자에게 한마디 (선택)">
     <div class="row" style="margin-top:14px"><button class="btn" data-close>취소</button><button class="btn gold" id="crSend">요청 보내기</button></div>`);
+  document.querySelectorAll('[data-ct]').forEach(b => b.onclick = () => openChipModal(b.dataset.ct));
+  if (ret) {
+    $('#crAll').onclick = () => { $('#crAmt').value = String(myChipsNow()); };
+    $('#crAmt').addEventListener('input', e => { const v = e.target.value.replace(/[^0-9]/g, ''); e.target.value = v ? Number(v).toLocaleString() : ''; });
+  }
   $('#crSend').onclick = async () => {
-    const amount = Number(document.querySelector('input[name=amt]:checked').value);
+    let amount;
+    if (ret) {
+      amount = Number(($('#crAmt').value || '').replace(/,/g, ''));
+      if (!amount || amount < 100) return toast('반납할 칩을 100 이상으로 넣어주세요');
+      if (amount > myChipsNow()) return toast('가진 칩보다 많이 반납할 수 없어요');
+    } else amount = Number(document.querySelector('input[name=amt]:checked').value);
+    const kind = ret ? 'return' : 'charge';
     $('#crSend').disabled = true;
-    const r = await api({ t: 'chipReq', amount, note: $('#crNote').value.trim() });
+    const r = await api({ t: 'chipReq', amount, kind, note: $('#crNote').value.trim() });
     $('#crSend').disabled = false;
-    if (r.ok) { myReq = { amount }; closeModal(); toast('충전 요청을 보냈어요. 관리자가 확인하면 알려드려요'); renderEntry(); render(); }
+    if (r.ok) { myReq = { amount, kind }; closeModal(); toast(`${ret ? '반납' : '충전'} 요청을 보냈어요. 관리자가 확인하면 알려드려요`); renderEntry(); render(); }
   };
 }
 // 입장 화면에 있을 때는 대기 중인 요청이 처리됐는지 가끔 확인
 setInterval(async () => {
   if (inGame || !user || !myReq) return;
   const before = user.chips, r = await refreshMe();
-  if (r && !r.req) toast(user.chips > before ? `칩 충전이 승인됐어요! (+${won(user.chips - before)})` : '칩 충전 요청이 처리됐어요');
+  if (r && !r.req) toast(user.chips > before ? `칩 충전이 승인됐어요! (+${won(user.chips - before)})` : user.chips < before ? `칩 반납이 처리됐어요 (-${won(before - user.chips)})` : '칩 요청이 처리됐어요');
 }, 12000);
 
 // ───────── 모달 / 토스트 ─────────

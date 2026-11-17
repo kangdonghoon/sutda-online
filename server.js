@@ -46,7 +46,7 @@ const dbErr = e => console.error('[db]', e && e.message || e);
 const pid = uid => 'a' + uid;                 // 게임 안에서 쓰는 플레이어 id
 const uidOf = id => (/^a\d+$/.test(id) ? Number(id.slice(1)) : null);
 const isAdmin = u => !!u && ADMINS.has(u.username);
-const publicUser = u => u && ({ id: u.id, username: u.username, nick: u.nick, chips: u.chips, hands: u.hands, wins: u.wins, best: u.best, rebuys: u.rebuys, bought: u.bought, admin: isAdmin(u) });
+const publicUser = u => u && ({ id: u.id, username: u.username, nick: u.nick, chips: u.chips, hands: u.hands, wins: u.wins, best: u.best, rebuys: u.rebuys, bought: u.bought, returned: u.returned || 0, admin: isAdmin(u) });
 
 function scrypt(pw, salt) {
   return new Promise((res, rej) => crypto.scrypt(String(pw), salt, 64, (e, k) => e ? rej(e) : res(k.toString('hex'))));
@@ -174,7 +174,7 @@ function viewFor(room, id) {
   s.code = room.code; s.host = room.host; s.auto = room.autoNext; s.turnMs = TURN_MS; s.you = id; s.practice = !!room.practice;
   if (s.h && s.h.rj) { s.h.rj.left = Math.max(0, room.showDue - now); s.h.rj.total = REJOIN_MS; }
   if (s.h && s.h.res) delete s.h.res.rake; // 수수료는 플레이어에게 보이지 않음 (관리자 페이지에서만)
-  const rq = pendingByUid.get(uidOf(id)); s.req = rq ? { amount: rq.amount } : null;
+  const rq = pendingByUid.get(uidOf(id)); s.req = rq ? { amount: rq.amount, kind: rq.kind } : null;
   s.canStart = Sutda.canStart(G);
   const h = G.hand;
   if (h && h.cards[id] && h.seats.includes(id)) s.me = { no: h.no, dl: h.deal, cards: h.cards[id] };
@@ -338,7 +338,7 @@ async function handle(body, ip) {
       const code = userRoom.get(u.id), r = code && rooms.get(code), p = r && player(r, myId);
       if (p) fresh.chips = p.chips; // 게임 중이면 방에 있는 칩이 최신
       const rq = pendingByUid.get(u.id);
-      return [200, { user: publicUser(fresh), room: p ? code : null, req: rq ? { amount: rq.amount, createdAt: rq.createdAt } : null }];
+      return [200, { user: publicUser(fresh), room: p ? code : null, req: rq ? { amount: rq.amount, kind: rq.kind, createdAt: rq.createdAt } : null }];
     }
     case 'nick': {
       const nick = clean(body.nick, 10); if (!nick) return [400, { error: '닉네임을 입력하세요' }];
@@ -361,15 +361,22 @@ async function handle(body, ip) {
   }
 
   if (t === 'chipReq') {
-    const amount = Number(body.amount);
-    if (!REQ_AMOUNTS.includes(amount)) return [400, { error: '충전 금액을 골라주세요' }];
-    const req = await store.createChipRequest(u.id, amount, clean(body.note, 40));
-    if (!req) return [409, { error: '이미 기다리는 충전 요청이 있어요' }];
-    pendingByUid.set(u.id, { id: req.id, amount, createdAt: req.createdAt });
+    const kind = body.kind === 'return' ? 'return' : 'charge';
+    const amount = Math.floor(Number(body.amount));
+    if (kind === 'charge' && !REQ_AMOUNTS.includes(amount)) return [400, { error: '충전 금액을 골라주세요' }];
+    if (kind === 'return') {
+      const rr = roomOf(u.id), p = rr && player(rr, pid(u.id));
+      const have = p ? p.chips : (await store.userById(u.id)).chips;
+      if (!Number.isFinite(amount) || amount < 100) return [400, { error: '반납할 칩을 100 이상으로 넣어주세요' }];
+      if (amount > have) return [400, { error: `가진 칩(${have.toLocaleString()})보다 많이 반납할 수 없어요` }];
+    }
+    const req = await store.createChipRequest(u.id, amount, clean(body.note, 40), kind);
+    if (!req) return [409, { error: '이미 기다리는 요청이 있어요' }];
+    pendingByUid.set(u.id, { id: req.id, amount, kind, createdAt: req.createdAt });
     const r = roomOf(u.id);
-    if (r) { r.G.log.push(`${u.nick} 칩 충전 요청 (${amount.toLocaleString()})`); r.G.v++; changed(r); }
-    log('chip request', u.username, amount);
-    return [200, { ok: true, req: { amount } }];
+    if (r) { r.G.log.push(`${u.nick} 칩 ${kind === 'return' ? '반납' : '충전'} 요청 (${amount.toLocaleString()})`); r.G.v++; changed(r); }
+    log('chip request', kind, u.username, amount);
+    return [200, { ok: true, req: { amount, kind } }];
   }
   if (t === 'chipCancel') {
     const req = await store.cancelChipRequest(u.id);
@@ -450,6 +457,27 @@ async function handle(body, ip) {
 }
 
 // ───────── 관리자 ─────────
+// 칩 반납 승인: 판 진행 중이면 판이 끝난 뒤에 승인 (칩이 판돈에 묶여 있어서)
+async function approveReturn(pend, amount, u) {
+  const r = roomOf(pend.userId), id = pid(pend.userId), p = r && player(r, id);
+  if (p && liveInHand(r, id)) return [409, { error: '게임 중이라 이번 판이 끝난 뒤에 승인할 수 있어요' }];
+  const have = p ? p.chips : ((await store.userById(pend.userId)) || {}).chips || 0;
+  const take = Math.min(amount, have);
+  if (take < 1) return [400, { error: '회수할 칩이 없어요' }];
+  const req = await store.decideChipRequest(pend.id, 'approved', take, u.username);
+  if (!req) return [409, { error: '이미 처리됐거나 취소된 요청이에요' }];
+  pendingByUid.delete(req.userId);
+  if (p) {
+    p.chips -= take;
+    await store.takeChips(req.userId, take, p.chips);
+    r.G.log.push(`${p.name} 칩 반납 -${take.toLocaleString()} (승인)`);
+    r.G.v++; changed(r);
+  } else await store.takeChips(req.userId, take, have - take);
+  notifyUser(req.userId, { status: 'approved', amount: take, kind: 'return' });
+  log('chip return', u.username, '←', req.username, take);
+  return [200, { ok: true, taken: take }];
+}
+
 async function admin(t, body, u) {
   if (!isAdmin(u)) return [403, { error: '관리자만 쓸 수 있어요' }];
   const target = body.id != null ? await store.userById(Number(body.id)) : null;
@@ -512,6 +540,8 @@ async function admin(t, body, u) {
     case 'admin.approve': {
       const amount = Math.floor(Number(body.amount));
       if (!Number.isFinite(amount) || amount < 1 || amount > 10000000) return [400, { error: '금액은 1 ~ 10,000,000 사이로 넣어주세요' }];
+      const pend = (await store.pendingRequests()).find(q => q.id === Number(body.id));
+      if (pend && pend.kind === 'return') return approveReturn(pend, amount, u);
       const req = await store.decideChipRequest(Number(body.id), 'approved', amount, u.username);
       if (!req) return [409, { error: '이미 처리됐거나 취소된 요청이에요' }];
       pendingByUid.delete(req.userId);
@@ -529,7 +559,7 @@ async function admin(t, body, u) {
         r.G.log.push(`${p.name} 칩 충전 +${amount.toLocaleString()} (승인)`);
       }
       if (r) { r.G.v++; changed(r); }
-      notifyUser(req.userId, { status: 'approved', amount, later });
+      notifyUser(req.userId, { status: 'approved', amount, later, kind: 'charge' });
       log('chip approve', u.username, '→', req.username, amount);
       return [200, { ok: true }];
     }
@@ -538,7 +568,7 @@ async function admin(t, body, u) {
       if (!req) return [409, { error: '이미 처리됐거나 취소된 요청이에요' }];
       pendingByUid.delete(req.userId);
       const r = roomOf(req.userId); if (r) { r.G.v++; changed(r); }
-      notifyUser(req.userId, { status: 'rejected', amount: req.amount });
+      notifyUser(req.userId, { status: 'rejected', amount: req.amount, kind: req.kind });
       log('chip reject', u.username, '→', req.username);
       return [200, { ok: true }];
     }
@@ -652,7 +682,7 @@ const server = http.createServer(async (req, res) => {
 store.init()
   .then(async () => {
     try { const v = await store.getSetting('rake'); if (v) RAKE = cleanRake(JSON.parse(v)); } catch (e) { dbErr(e); }
-    for (const q of await store.pendingRequests()) pendingByUid.set(q.userId, { id: q.id, amount: q.amount, createdAt: q.createdAt });
+    for (const q of await store.pendingRequests()) pendingByUid.set(q.userId, { id: q.id, amount: q.amount, kind: q.kind, createdAt: q.createdAt });
   })
   .then(() => server.listen(PORT, HOST, () => log(`섯다 서버 실행 중: http://localhost:${PORT} (저장소: ${store.kind}, 관리자: ${[...ADMINS].join(', ') || '없음'}, 수수료: ${RAKE.rate}%)`)))
   .catch(e => { console.error('DB 연결 실패:', e.message); process.exit(1); });

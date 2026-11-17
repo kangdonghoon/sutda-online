@@ -77,10 +77,10 @@ async function init(){
   if (!me.user.admin) return deny('관리자 계정이 아니에요. 서버의 ADMIN_USERS 환경변수에 아이디를 넣어야 해요.');
   $('#who').textContent = '@' + me.user.username;
   $('#main').innerHTML = `
-    <section><h2>충전 요청 <span id="reqCount"></span></h2>
-      <div class="wrap"><table><thead><tr><th>회원</th><th style="text-align:right">현재 칩</th><th style="text-align:right">요청</th><th>메모</th><th>요청 시각</th><th>지급할 칩</th><th></th></tr></thead><tbody id="reqs"></tbody></table></div>
+    <section><h2>칩 요청 (충전·반납) <span id="reqCount"></span></h2>
+      <div class="wrap"><table><thead><tr><th>회원</th><th style="text-align:right">현재 칩</th><th style="text-align:right">요청</th><th>메모</th><th>요청 시각</th><th>지급 / 회수할 칩</th><th></th></tr></thead><tbody id="reqs"></tbody></table></div>
       <details><summary class="muted">최근 처리 내역</summary>
-        <div class="wrap"><table><thead><tr><th>처리 시각</th><th>회원</th><th style="text-align:right">요청</th><th style="text-align:right">지급</th><th>결과</th><th>처리자</th></tr></thead><tbody id="reqsDone"></tbody></table></div>
+        <div class="wrap"><table><thead><tr><th>처리 시각</th><th>회원</th><th style="text-align:right">요청</th><th style="text-align:right">지급 / 회수</th><th>결과</th><th>처리자</th></tr></thead><tbody id="reqsDone"></tbody></table></div>
       </details>
     </section>
     <section><h2>수수료</h2>
@@ -124,7 +124,7 @@ async function loadUsers(){
       <td><b>${esc(u.nick)}</b> <span class="muted">@${esc(u.username)}</span>${u.admin ? '<span class="tag gold">관리자</span>' : ''}${u.banned ? '<span class="tag bad">정지</span>' : ''}</td>
       <td>${u.room ? `<span class="code">${esc(u.room.toUpperCase())}</span>` : '<span class="muted">-</span>'}</td>
       <td class="r">${won(u.hands)} / ${won(u.wins)}</td>
-      <td class="r">${won(u.rebuys)}회<div class="muted">${won(u.bought || 0)}</div></td>
+      <td class="r">${won(u.rebuys)}회<div class="muted">${won(u.bought || 0)}</div>${u.returned ? `<div class="muted">반납 ${won(u.returned)}</div>` : ''}</td>
       <td class="muted">${ago(u.lastSeen)}</td>
       <td><input class="inp chipIn" value="${u.chips}" inputmode="numeric"> <button class="btn sm" data-a="chips">저장</button></td>
       <td>${u.admin ? '' : `<button class="btn sm ${u.banned ? '' : 'red'}" data-a="ban" data-v="${u.banned ? 0 : 1}">${u.banned ? '정지 해제' : '정지'}</button>`}</td>
@@ -152,21 +152,21 @@ async function loadReqs(force){
     document.title = (n ? `(${n}) ` : '') + '섯다 관리자';
     $('#reqCount').innerHTML = n ? `<span class="tag bad" style="font-size:13px">${n}건 대기</span>` : '';
     // 입력 중인 금액이 지워지지 않게, 목록이 바뀔 때만 다시 그림
-    const sig = r.pending.map(q => q.id + ':' + q.chips + ':' + q.inHand).join(',');
+    const sig = r.pending.map(q => q.id + ':' + q.kind + ':' + q.chips + ':' + q.inHand).join(',');
     if (force || sig !== reqSig) {
       reqSig = sig;
       $('#reqs').innerHTML = r.pending.map(q => `<tr data-id="${q.id}">
-        <td><b>${esc(q.nick)}</b> <span class="muted">@${esc(q.username)}</span>${q.room ? ` <span class="code">${esc(q.room.toUpperCase())}</span>` : ''}${q.inHand ? '<span class="tag gold">게임 중 · 판 끝나면 지급</span>' : ''}</td>
-        <td class="r">${won(q.chips)}</td><td class="r">${won(q.amount)}</td>
+        <td>${kindTag(q.kind)} <b>${esc(q.nick)}</b> <span class="muted">@${esc(q.username)}</span>${q.room ? ` <span class="code">${esc(q.room.toUpperCase())}</span>` : ''}${q.inHand ? `<span class="tag gold">${q.kind === 'return' ? '게임 중 · 판 끝나고 승인 가능' : '게임 중 · 판 끝나면 지급'}</span>` : ''}</td>
+        <td class="r">${won(q.chips)}</td><td class="r">${q.kind === 'return' ? '−' : '+'}${won(q.amount)}</td>
         <td>${q.note ? esc(q.note) : '<span class="muted">-</span>'}</td>
         <td class="muted">${ago(q.createdAt)}</td>
-        <td><input class="inp reqIn" value="${q.amount}" inputmode="numeric"></td>
-        <td style="white-space:nowrap"><button class="btn sm gold" data-r="approve">승인</button> <button class="btn sm red" data-r="reject">거절</button></td>
+        <td><input class="inp reqIn" value="${q.kind === 'return' ? Math.min(q.amount, q.chips) : q.amount}" inputmode="numeric"></td>
+        <td style="white-space:nowrap"><button class="btn sm gold" data-r="approve" data-kind="${q.kind}" ${q.kind === 'return' && q.inHand ? 'disabled' : ''}>${q.kind === 'return' ? '회수' : '승인'}</button> <button class="btn sm red" data-r="reject">거절</button></td>
       </tr>`).join('') || '<tr><td colspan="7" class="muted">기다리는 요청이 없어요</td></tr>';
     }
     const label = { approved: '승인', rejected: '거절', canceled: '본인 취소' };
-    $('#reqsDone').innerHTML = r.recent.map(q => `<tr><td class="muted">${q.decidedAt ? when(q.decidedAt) : '-'}</td><td>${esc(q.nick)} <span class="muted">@${esc(q.username)}</span></td>
-      <td class="r">${won(q.amount)}</td><td class="r">${q.granted != null ? won(q.granted) : '-'}</td><td class="st-${q.status}">${label[q.status] || q.status}</td><td class="muted">${q.decidedBy === 'self' ? '-' : esc(q.decidedBy || '')}</td></tr>`).join('')
+    $('#reqsDone').innerHTML = r.recent.map(q => `<tr><td class="muted">${q.decidedAt ? when(q.decidedAt) : '-'}</td><td>${kindTag(q.kind)} ${esc(q.nick)} <span class="muted">@${esc(q.username)}</span></td>
+      <td class="r">${won(q.amount)}</td><td class="r">${q.granted != null ? (q.kind === 'return' ? '−' : '+') + won(q.granted) : '-'}</td><td class="st-${q.status}">${label[q.status] || q.status}</td><td class="muted">${q.decidedBy === 'self' ? '-' : esc(q.decidedBy || '')}</td></tr>`).join('')
       || '<tr><td colspan="6" class="muted">처리 내역이 없어요</td></tr>';
   } catch(e){}
 }
@@ -177,11 +177,13 @@ async function onReqClick(e){
   try {
     if (b.dataset.r === 'approve') {
       const amount = Number(tr.querySelector('.reqIn').value.replace(/,/g, ''));
-      await api({ t: 'admin.approve', id, amount }); toast(`${won(amount)} 지급을 승인했어요`);
+      const res = await api({ t: 'admin.approve', id, amount });
+      toast(b.dataset.kind === 'return' ? `${won(res.taken || amount)} 회수했어요` : `${won(amount)} 지급을 승인했어요`);
     } else { await api({ t: 'admin.reject', id }); toast('요청을 거절했어요'); }
     loadReqs(true); loadUsers();
   } catch(err){ toast(err.message); b.disabled = false; loadReqs(true); }
 }
+const kindTag = k => k === 'return' ? '<span class="tag bad">반납</span>' : '<span class="tag gold">충전</span>';
 const when = t => { const d = new Date(t); const p = n => String(n).padStart(2, '0'); return `${d.getMonth() + 1}/${d.getDate()} ${p(d.getHours())}:${p(d.getMinutes())}`; };
 async function loadRake(fillForm){
   try {
