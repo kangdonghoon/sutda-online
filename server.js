@@ -281,10 +281,6 @@ async function handle(body, ip) {
     store.touch(u.id).catch(dbErr);
     return [200, { sess: await newSession(u), user: publicUser(u) }];
   }
-  if (t === 'ranking') {
-    const list = await store.ranking(20);
-    return [200, list.map(u => ({ nick: u.nick, profit: u.profit, chips: u.chips, hands: u.hands, wins: u.wins }))];
-  }
 
   const u = await authed(body.sess);
   if (!u) return [401, { error: '다시 로그인해 주세요' }];

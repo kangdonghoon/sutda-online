@@ -74,9 +74,8 @@ function renderEntry(){
   const pb = $('#profileBox');
   pb.classList.toggle('hidden', !li);
   if (li) {
-    const rate = user.hands ? Math.round(user.wins / user.hands * 100) : 0;
     pb.innerHTML = `<div class="prof"><div class="who"><b>${esc(user.nick)}</b> <span class="muted">@${esc(user.username)}</span>
-        <div class="stats"><span>칩 <b>${won(user.chips)}</b></span><span>${won(user.hands)}판 ${won(user.wins)}승 (${rate}%)</span><span>최고 <b>${won(user.best)}</b></span></div>
+        <div class="stats"><span>칩 <b>${won(user.chips)}</b></span><span>${won(user.hands)}판 ${won(user.wins)}승</span><span>최고 <b>${won(user.best)}</b></span></div>
         ${myReq ? `<div class="reqline">칩 ${won(myReq.amount)} 충전 요청을 관리자가 확인하고 있어요</div>` : ''}</div>
       <div class="row" style="flex:0 0 auto">${user.admin ? '<a class="hbtn" href="/admin" style="text-decoration:none;color:var(--red);font-weight:700">관리자</a>' : ''}<button class="hbtn" id="btnChip">${myReq ? '충전 대기 중' : '칩 충전'}</button><button class="hbtn" id="btnNick">닉네임 변경</button><button class="hbtn" id="btnLogout">로그아웃</button></div></div>`;
     $('#btnLogout').onclick = async () => { await api({ t: 'logout' }, true); setLoggedOut(); };
@@ -87,15 +86,6 @@ function renderEntry(){
     };
   }
   showInvite();
-}
-async function loadRanking(){
-  try {
-    const r = await fetch('/api', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ t: 'ranking' }) });
-    const list = await r.json();
-    if (!Array.isArray(list) || !list.length) { $('#ranking').innerHTML = '아직 기록이 없어요. 첫 판을 돌려보세요!'; return; }
-    $('#ranking').innerHTML = `<table class="rank">${list.map((u, i) => `<tr><td class="n">${i + 1}</td><td>${esc(u.nick)}</td>
-      <td class="r ${u.profit >= 0 ? 'plus' : 'minus'}">${u.profit >= 0 ? '+' : ''}${won(u.profit)}</td><td class="r muted">${won(u.hands)}판</td></tr>`).join('')}</table>`;
-  } catch(e){ $('#ranking').textContent = '랭킹을 불러오지 못했어요'; }
 }
 
 // ───────── 방 만들기 / 목록 ─────────
@@ -193,7 +183,7 @@ function leaveGame(silent){
   try { history.replaceState(null, '', location.pathname); } catch(e){}
   $('#game').classList.add('hidden'); $('#entry').classList.remove('hidden');
   $('#resumeBox').classList.add('hidden');
-  setTimeout(() => { refreshMe(); loadRanking(); }, 300);
+  setTimeout(() => { refreshMe(); }, 300);
   renderEntry(); loadTables();
 }
 $('#btnLeave').onclick = () => confirmBox('방에서 나갈까요?', '진행 중인 판이 있으면 다이 처리돼요. 칩은 계정에 저장돼요.', '나가기', () => leaveGame(false));
@@ -574,7 +564,7 @@ function toast(t){
 
 // ───────── 시작 ─────────
 (async () => {
-  renderEntry(); loadTables(); loadRanking();
+  renderEntry(); loadTables();
   if (!sess) { $('#authBox').classList.remove('hidden'); return; }
   const r = await refreshMe();
   if (!r) { renderEntry(); return; }

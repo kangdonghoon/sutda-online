@@ -174,13 +174,6 @@ class PgStore {
       : await this.q(`SELECT * FROM users ORDER BY last_seen DESC LIMIT 200`);
     return r.rows.map(mapUser);
   }
-  async ranking(limit) {
-    // 수익 = 현재 칩 - (가입 칩 + 충전받은 칩)
-    const r = await this.q(
-      `SELECT *, chips - ${START_CHIPS} - bought AS profit FROM users WHERE banned = FALSE AND hands > 0 ORDER BY profit DESC, hands DESC LIMIT $1`,
-      [limit]);
-    return r.rows.map(row => Object.assign(mapUser(row), { profit: Number(row.profit) }));
-  }
 }
 
 // ───────── 메모리 (DB 없이 로컬 실행할 때) ─────────
@@ -234,11 +227,6 @@ class MemStore {
     const s = (search || '').toLowerCase();
     return [...this.users.values()].filter(u => !s || u.username.includes(s) || u.nick.toLowerCase().includes(s))
       .sort((a, b) => b.lastSeen - a.lastSeen).slice(0, 200).map(u => ({ ...u }));
-  }
-  async ranking(limit) {
-    return [...this.users.values()].filter(u => !u.banned && u.hands > 0)
-      .map(u => ({ ...u, profit: u.chips - START_CHIPS - u.bought }))
-      .sort((a, b) => b.profit - a.profit || b.hands - a.hands).slice(0, limit);
   }
 }
 

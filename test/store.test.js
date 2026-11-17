@@ -36,10 +36,7 @@ async function run(store, label) {
   assert.equal((await store.pendingRequests()).length, 0);
   await store.grantChips(b.id, 5000, 3000); u = await store.userById(b.id); assert.deepEqual([u.chips, u.bought], [3000, 15000]);
   await store.setChips(b.id, 10000);
-  const rk = await store.ranking(10);
-  assert.deepEqual(rk.map(r => [r.username, r.profit]), [['donghun', 2000], ['minsu', -15000]]);
   await store.setBanned(b.id, true); assert.equal((await store.userById(b.id)).banned, true);
-  assert.equal((await store.ranking(10)).length, 1);
   await store.setChips(a.id, 777); assert.equal((await store.userById(a.id)).chips, 777);
   await store.setNick(a.id, '새닉'); assert.equal((await store.userById(a.id)).nick, '새닉');
   assert.equal((await store.listUsers('MIN')).length, 1, 'search case-insensitive');
