@@ -116,12 +116,12 @@
   }
 
   // 수수료 계산. h.rk = 판 시작 때 고정한 설정 {rate(%), cap, min, folds}
-  // 땡값 = 판돈 × 배수 × (1~9땡 1배, 장땡·13·18광땡 2배, 38광땡 4배)
-  function ttaengAmount(rank, ante, mult) {
-    if (!(mult > 0)) return 0;
-    if (rank === 1000) return ante * mult * 4;
-    if (rank === 900 || rank === 810) return ante * mult * 2;
-    if (rank > 800 && rank < 810) return ante * mult;
+  // 땡값 (1인당, 기본 판돈 기준): 장땡 100%, 13·18광땡 150%, 38광땡 200%, 1~9땡 없음
+  function ttaengAmount(rank, ante, on) {
+    if (!on) return 0;
+    if (rank === 1000) return ante * 2;
+    if (rank === 900) return Math.floor(ante * 1.5);
+    if (rank === 810) return ante;
     return 0;
   }
   // 받아준 사람이 없는 초과 베팅 (가장 많이 건 한 사람의 차액)
@@ -153,7 +153,7 @@
       players: [], phase: 'lobby', hand: null, sun: null, log: [], handNo: 0,
       rake: (opts && opts.rake) || null, rakeTotal: 0,
       mode: (opts && opts.mode === 'two') ? 'two' : 'one',   // one: 한 장씩 2번 베팅, two: 두 장 받고 1번 베팅
-      ttaeng: (opts && opts.ttaeng) || 0,                      // 땡값 배수 (0 = 없음)
+      ttaeng: (opts && opts.ttaeng) ? 1 : 0,                  // 땡값 켬(1) / 끔(0)
     };
   }
   function P(S, id) { return S.players.find(p => p.id === id); }
@@ -326,7 +326,7 @@
     const pw = P(S, w), rake = rakeFor(h, true), win = h.pot - rake;
     pw.chips += win; S.rakeTotal = (S.rakeTotal || 0) + rake;
     h.result = { type: 'fold', winners: [w], pay: { [w]: win }, rake, reveal: false };
-    log(S, `${pw.name} 승리 (+${win.toLocaleString()}, 모두 다이)${rake ? ` · 수수료 ${rake.toLocaleString()}` : ''}`);
+    log(S, `${pw.name} 승리 (+${win.toLocaleString()}, 모두 다이)`);
     h.toAct = null; S.sun = w; S.phase = 'show';
   }
 
@@ -349,8 +349,7 @@
     const wn = mainWinners.map(id => `${P(S, id).name}(${ev[id]})`).join(', ');
     log(S, `${wn} 승리${pw.catchBy ? ' — ' + pw.catchBy + '!' : ''}`);
     Object.entries(payMap).forEach(([id, a]) => { if (!mainWinners.includes(id)) log(S, `${P(S, id).name} 사이드팟 +${a.toLocaleString()}`); });
-    if (rake) log(S, `수수료 ${rake.toLocaleString()}`);
-    // 땡값: 땡(광땡 포함)으로 이기면 끝까지 남은(다이하지 않은) 다른 사람이 낸다 (잡힌 경우·공동 승리는 제외)
+    // 땡값: 장땡·광땡으로 이기면 끝까지 남은(다이하지 않은) 다른 사람이 낸다 (잡힌 경우·공동 승리는 제외)
     if (h.tg > 0 && mainWinners.length === 1 && !pw.catchBy) {
       const w = mainWinners[0], each = ttaengAmount(evalHand(h.cards[w]).rank, S.ante, h.tg);
       if (each > 0) {

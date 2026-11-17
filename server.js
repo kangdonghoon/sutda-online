@@ -80,7 +80,7 @@ const userRoom = new Map(); // uid → 방 코드 (한 계정은 한 방에만)
 function createRoom(hostId) {
   let code; do code = rid(4); while (rooms.has(code));
   const room = {
-    code, G: Sutda.createGame({ ante: 100, startChips: START_CHIPS, rake: Object.assign({}, RAKE), mode: 'one', ttaeng: 5 }), host: hostId,
+    code, G: Sutda.createGame({ ante: 100, startChips: START_CHIPS, rake: Object.assign({}, RAKE), mode: 'one', ttaeng: 1 }), host: hostId,
     autoNext: true, banned: new Set(), conns: new Map(), lastSeen: new Map(),
     lastActive: Date.now(), botKey: '', botDue: 0, showKey: '', showDue: 0, dirty: false, savedKey: '', leaving: new Set(), credits: new Map(),
   };
@@ -152,7 +152,8 @@ function persistHand(room) {
 function viewFor(room, id) {
   const G = room.G, now = Date.now();
   const s = Sutda.publicState(G, now);
-  s.code = room.code; s.host = room.host; s.auto = room.autoNext; s.turnMs = TURN_MS; s.you = id; s.rake = G.rake;
+  s.code = room.code; s.host = room.host; s.auto = room.autoNext; s.turnMs = TURN_MS; s.you = id;
+  if (s.h && s.h.res) delete s.h.res.rake; // 수수료는 플레이어에게 보이지 않음 (관리자 페이지에서만)
   const rq = pendingByUid.get(uidOf(id)); s.req = rq ? { amount: rq.amount } : null;
   s.canStart = Sutda.canStart(G);
   const h = G.hand;
@@ -396,9 +397,8 @@ async function handle(body, ip) {
       return ok();
     }
     case 'ttaeng': {
-      const t = Number(body.mult);
-      if (![0, 3, 5, 10].includes(t)) return [400, { error: '땡값 배수를 골라주세요' }];
-      if (G.ttaeng !== t) { G.ttaeng = t; G.log.push(t ? `땡값 판돈 ×${t}${G.phase === 'bet' ? ' — 다음 판부터' : ''}` : `땡값 없음${G.phase === 'bet' ? ' — 다음 판부터' : ''}`); G.v++; }
+      const t = body.on ? 1 : 0;
+      if (G.ttaeng !== t) { G.ttaeng = t; G.log.push(`땡값 ${t ? '켬' : '끔'}${G.phase === 'bet' ? ' — 다음 판부터' : ''}`); G.v++; }
       return ok();
     }
   }
@@ -460,8 +460,7 @@ async function admin(t, body, u) {
       await store.setSetting('rake', JSON.stringify(RAKE));
       for (const r of rooms.values()) {
         r.G.rake = Object.assign({}, RAKE);
-        r.G.log.push(RAKE.rate > 0 ? `수수료 ${RAKE.rate}%${RAKE.cap ? ` (최대 ${RAKE.cap.toLocaleString()})` : ''} — 다음 판부터` : '수수료 없음 — 다음 판부터');
-        r.G.v++; changed(r);
+        r.G.v++;
       }
       log('admin rake', u.username, JSON.stringify(RAKE));
       return [200, { ok: true, settings: RAKE }];

@@ -66,50 +66,60 @@ assert.equal(S.rakeFor(H(10000, { rate: 5, cap: 2000, min: 500, folds: false }),
 assert.equal(S.rakeFor(H(10000, { rate: 5, cap: 2000, min: 500, folds: true }), true), 500);
 assert.equal(S.rakeFor(H(10000, null), false), 0);
 
-// 땡값 금액
-assert.equal(S.ttaengAmount(805, 100, 5), 500);
-assert.equal(S.ttaengAmount(810, 100, 5), 1000);
-assert.equal(S.ttaengAmount(900, 100, 5), 1000);
-assert.equal(S.ttaengAmount(1000, 100, 5), 2000);
-assert.equal(S.ttaengAmount(700, 100, 5), 0);
-assert.equal(S.ttaengAmount(805, 100, 0), 0);
+// 땡값 금액 (판돈 100): 1~9땡 0, 장땡 100, 13·18광땡 150, 38광땡 200
+assert.equal(S.ttaengAmount(805, 100, 1), 0);
+assert.equal(S.ttaengAmount(810, 100, 1), 100);
+assert.equal(S.ttaengAmount(900, 100, 1), 150);
+assert.equal(S.ttaengAmount(1000, 100, 1), 200);
+assert.equal(S.ttaengAmount(700, 100, 1), 0);
+assert.equal(S.ttaengAmount(810, 100, 0), 0);
+assert.equal(S.ttaengAmount(900, 500, 1), 750);
 // 두 장 모드: 시작하자마자 두 장, 바로 마지막 라운드
 {
   let sd = 3; const r2 = () => (sd = (sd * 16807) % 2147483647) / 2147483647;
-  const G = S.createGame({ mode: 'two', ttaeng: 5 });
+  const G = S.createGame({ mode: 'two', ttaeng: 1 });
   S.addPlayer(G, 'x', 'X', true); S.addPlayer(G, 'y', 'Y', true);
   S.startHand(G, r2, 0);
   assert.equal(G.hand.round, 2); assert.equal(G.hand.cards.x.length, 2); assert.equal(G.hand.cards.y.length, 2);
   assert.equal(S.publicState(G, 0).h.nc, 2);
 }
-// 땡값 정산: x가 9땡, y·z는 끝까지 체크 → y·z가 각자 판돈×5 = 500
+// 땡값 정산: x가 장땡, y·z는 끝까지 체크 → y·z가 각자 100
 {
-  const G = S.createGame({ ante: 100, ttaeng: 5 });
+  const G = S.createGame({ ante: 100, ttaeng: 1 });
   ['x', 'y', 'z'].forEach(id => S.addPlayer(G, id, id.toUpperCase(), true));
   S.startHand(G, () => 0.5, 0);
-  const h = G.hand; h.cards = { x: [sp(9), pi(9)], y: [pi(2), pi(3)], z: [pi(1), pi(4)] };
+  const h = G.hand; h.cards = { x: [sp(10), pi(10)], y: [pi(2), pi(3)], z: [pi(1), pi(4)] };
   h.round = 2;
   // 모두 체크 → 결과
   while (G.phase === 'bet') S.act(G, h.toAct, 'check', 0);
   const r = h.result;
   assert.equal(r.type, 'show'); assert.deepEqual(r.winners, ['x']);
-  assert.deepEqual(r.tg, { to: 'x', each: 500, from: { y: 500, z: 500 }, total: 1000 });
-  assert.equal(G.players.find(p => p.id === 'x').chips, 10000 - 100 + 300 + 1000);
-  assert.equal(G.players.find(p => p.id === 'y').chips, 10000 - 100 - 500);
+  assert.deepEqual(r.tg, { to: 'x', each: 100, from: { y: 100, z: 100 }, total: 200 });
+  assert.equal(G.players.find(p => p.id === 'x').chips, 10000 - 100 + 300 + 200);
+  assert.equal(G.players.find(p => p.id === 'y').chips, 10000 - 100 - 100);
 }
-// 다이한 사람은 땡값을 내지 않음: z가 다이, y만 끝까지 → y만 500
+// 다이한 사람은 땡값을 내지 않음: x가 38광땡, z가 다이 → y만 200
 {
-  const G = S.createGame({ ante: 100, ttaeng: 5 });
+  const G = S.createGame({ ante: 100, ttaeng: 1 });
   ['x', 'y', 'z'].forEach(id => S.addPlayer(G, id, id.toUpperCase(), true));
   S.startHand(G, () => 0.5, 0);
-  const h = G.hand; h.cards = { x: [sp(9), pi(9)], y: [pi(2), pi(3)], z: [pi(1), pi(4)] }; h.round = 2;
+  const h = G.hand; h.cards = { x: [sp(3), sp(8)], y: [pi(2), pi(3)], z: [pi(1), pi(4)] }; h.round = 2;
   while (G.phase === 'bet') S.act(G, h.toAct, h.toAct === 'z' ? 'die' : 'check', 0);
-  assert.deepEqual(h.result.tg, { to: 'x', each: 500, from: { y: 500 }, total: 500 });
+  assert.deepEqual(h.result.tg, { to: 'x', each: 200, from: { y: 200 }, total: 200 });
   assert.equal(G.players.find(p => p.id === 'z').chips, 10000 - 100);
+}
+// 1~9땡은 땡값 없음
+{
+  const G = S.createGame({ ante: 100, ttaeng: 1 });
+  ['x', 'y'].forEach(id => S.addPlayer(G, id, id, true));
+  S.startHand(G, () => 0.5, 0);
+  const h = G.hand; h.cards = { x: [sp(9), pi(9)], y: [pi(2), pi(3)] }; h.round = 2;
+  while (G.phase === 'bet') S.act(G, h.toAct, 'check', 0);
+  assert.deepEqual(h.result.winners, ['x']); assert.equal(h.result.tg, undefined);
 }
 // 땡잡이로 잡히면 땡값 없음
 {
-  const G = S.createGame({ ante: 100, ttaeng: 5 });
+  const G = S.createGame({ ante: 100, ttaeng: 1 });
   ['x', 'y'].forEach(id => S.addPlayer(G, id, id, true));
   S.startHand(G, () => 0.5, 0);
   const h = G.hand; h.cards = { x: [sp(9), pi(9)], y: [sp(3), sp(7)] }; h.round = 2;
@@ -121,7 +131,7 @@ assert.equal(S.ttaengAmount(805, 100, 0), 0);
 let seed = 7; const rng = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
 let hands = 0, redeals = 0, folds = 0, shows = 0, raked = 0, ttaengs = 0;
 for (let g = 0; g < 300; g++) {
-  const G = S.createGame({ ante: 100, startChips: 3000, rake: g % 3 ? { rate: 5, cap: 300, min: 300, folds: g % 2 === 0 } : null, mode: g % 4 < 2 ? 'two' : 'one', ttaeng: [0, 3, 5, 10][g % 4] });
+  const G = S.createGame({ ante: 100, startChips: 3000, rake: g % 3 ? { rate: 5, cap: 300, min: 300, folds: g % 2 === 0 } : null, mode: g % 4 < 2 ? 'two' : 'one', ttaeng: g % 2 });
   const n = 2 + (g % 5);
   for (let i = 0; i < n; i++) S.addPlayer(G, 'p' + i, 'P' + i, true);
   const total = () => G.rakeTotal + G.players.reduce((s, p) => s + p.chips, 0) + (G.hand && G.phase === 'bet' ? G.hand.pot : 0)
