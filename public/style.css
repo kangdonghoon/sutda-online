@@ -487,3 +487,18 @@ body:has(#entry:not(.hidden)){
   #center.hd .seal{font-size:14px;padding:2px 10px;margin-top:2px}
   #center.hd .banner .big{font-size:15px;margin-top:2px!important}
 }
+/* 공용 카드 한 번 더 크게 */
+.board .hw.pc,.board .slot{width:62px;height:87px}
+.board{min-height:87px;gap:7px}
+.board .hw.pc .pcimg{border-radius:6%/4.3%}
+@media (orientation:landscape) and (max-height:520px){
+  .board .hw.pc,.board .slot{width:48px;height:67px}
+  .board{min-height:67px;gap:4px}
+  #center.hd{width:50%;top:28%}
+}
+#center.hd{top:57%}
+@media (orientation:landscape) and (max-height:520px){
+  #center.hd{top:31%}
+  #center.hd .seal{display:none}   /* 좁은 화면: 이긴 족보는 좌석 밑에 이미 나옴 */
+}
+@media (orientation:landscape) and (max-height:520px){ #center.hd{top:33%} }
