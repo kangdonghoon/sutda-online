@@ -105,6 +105,7 @@ function createRoom(hostId, rules, practice) {
     autoNext: true, banned: new Set(), conns: new Map(), lastSeen: new Map(),
     lastActive: Date.now(), botKey: '', botDue: 0, showKey: '', showDue: 0, dirty: false, savedKey: '', leaving: new Set(), credits: new Map(),
     dealOpt: {},  // 관리자 딜 옵션: { 플레이어 id: 0~3 }
+    watchers: new Map(), // 관전자: { 플레이어 id: 닉네임 } (자리 없이 화면만 받음, 남의 패는 안 보임)
   };
   if (rules.kind !== 'holdem') room.G.deckHook = S => prepareDeck(room.dealOpt, S);
   rooms.set(code, room);
@@ -112,6 +113,8 @@ function createRoom(hostId, rules, practice) {
 }
 const player = (room, id) => room.G.players.find(p => p.id === id);
 const humans = room => room.G.players.filter(p => !p.bot);
+// 지금 화면을 보고 있는 관전자 이름 (자리에 앉은 사람 제외)
+const watchersOf = room => [...room.watchers].filter(([id]) => !player(room, id) && room.conns.get(id) && room.conns.get(id).size).map(([, n]) => n);
 const connected = (room, id) => { const s = room.conns.get(id); return !!(s && s.size); };
 const liveInHand = (room, id) => { const G = room.G, h = G.hand; return G.phase === 'bet' && h && h.seats.includes(id) && !h.folded[id]; };
 
@@ -188,6 +191,8 @@ function viewFor(room, id) {
   const h = G.hand;
   if (h && h.cards[id] && h.seats.includes(id)) s.me = { no: h.no, dl: h.deal, cards: h.cards[id] };
   if (h && s.h && G.phase === 'bet' && h.toAct === id) s.h.lg = EN(G).legal(G, id);
+  s.watch = watchersOf(room).slice(0, 30);
+  s.watching = !player(room, id);
   return s;
 }
 function send(res, event, data) { try { res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); } catch (e) {} }
@@ -229,6 +234,7 @@ setInterval(() => {
       if (p.away !== away) { p.away = away; dirty = true; }
     }
     const oldHost = room.host; pickHost(room); if (room.host !== oldHost) dirty = true;
+    for (const id of room.watchers.keys()) if (!connected(room, id) && now - (room.lastSeen.get(id) || 0) > 60000) { room.watchers.delete(id); dirty = true; }
     if (G.phase === 'bet' && h && h.toAct) {
       const p = player(room, h.toAct), k = h.toAct + ':' + G.v;
       if (p && p.bot) {
@@ -414,10 +420,33 @@ async function handle(body, ip) {
     case 'join': {
       if (room.banned.has(u.id)) return [403, { error: '이 방에서 내보내졌어요.' }];
       if (room.practice && room.owner !== myId) return [403, { error: '혼자 하는 연습방이라 들어갈 수 없어요.' }];
+      // 관전으로 입장: 자리에 앉지 않고 화면만 받음 (이미 앉아 있으면 그대로)
+      if (body.watch && !player(room, myId)) {
+        if (room.practice) return [403, { error: '연습방은 관전할 수 없어요.' }];
+        if (!room.watchers.has(myId)) G.log.push(`${u.nick} 관전 입장`);
+        room.watchers.set(myId, u.nick); room.lastSeen.set(myId, now); G.v++;
+        return ok({ seated: false, watching: true });
+      }
       const err = leaveOtherRoom(u.id, room.code); if (err) return [409, { error: err }];
       const p = await seat(room, u);
-      if (!room.host || !player(room, room.host)) room.host = myId;
-      return ok({ seated: !!p });
+      if (p) room.watchers.delete(myId);
+      else { room.watchers.set(myId, u.nick); room.lastSeen.set(myId, now); } // 자리가 꽉 차면 관전으로
+      if (p && (!room.host || !player(room, room.host))) room.host = myId;
+      G.v++;
+      return ok({ seated: !!p, watching: !p });
+    }
+    case 'stand': { // 자리에서 일어나 관전 (판 도중이면 다이하고 판이 끝나면 자리에서 빠짐)
+      if (room.practice) return [400, { error: '연습방에서는 관전으로 바꿀 수 없어요' }];
+      const p = player(room, myId);
+      if (!p) return ok();
+      if (!removeFromRoom(room, myId)) {
+        room.leaving.add(myId);
+        if (G.hand && G.hand.toAct === myId) EN(G).act(G, myId, 'die', now);
+      }
+      room.watchers.set(myId, u.nick);
+      G.log.push(`${u.nick} 관전으로 바꿈`); G.v++;
+      if (room.host === myId) { room.host = null; pickHost(room); }
+      return ok();
     }
     case 'rejoin':
       if (!EN(G).rejoinAnswer(G, myId, !!body.yes)) return [409, { error: '지금은 정할 수 없어요' }];
@@ -435,10 +464,11 @@ async function handle(body, ip) {
     case 'chat': {
       const p = player(room, myId), x = clean(body.x, 80);
       if (!x) return [400, { error: 'empty' }];
-      broadcast(room, 'ch', { nm: p ? p.name : u.nick, x });
+      broadcast(room, 'ch', { nm: p ? p.name : u.nick + ' (관전)', x, w: !p });
       return [200, { ok: true }];
     }
     case 'leave': {
+      if (room.watchers.delete(myId) && !player(room, myId)) { G.log.push(`${u.nick} 관전 나감`); G.v++; room.lastSeen.delete(myId); return ok(); }
       if (room.practice && room.owner === myId) { for (const p of humans(room)) dropConns(room, p.id, 'closed'); rooms.delete(room.code); return [200, { ok: true }]; }
       if (!removeFromRoom(room, myId)) {
         const p = player(room, myId); if (p) p.away = true;
@@ -702,15 +732,19 @@ const server = http.createServer(async (req, res) => {
       room.conns.get(id).add(res);
       room.lastSeen.set(id, Date.now());
       const p = player(room, id); if (p && p.away) { p.away = false; room.G.v++; }
+      if (!p && !room.practice) { room.watchers.set(id, u.nick); room.G.v++; } // 자리 없이 들어온 사람은 관전자
       send(res, 'st', viewFor(room, id));
       changed(room);
-      req.on('close', () => { const set = room.conns.get(id); if (set) set.delete(res); room.lastSeen.set(id, Date.now()); });
+      req.on('close', () => {
+        const set = room.conns.get(id); if (set) set.delete(res); room.lastSeen.set(id, Date.now());
+        if (!player(room, id) && !(set && set.size)) { room.G.v++; changed(room); } // 관전자 수 갱신
+      });
       return;
     }
     if (req.method === 'GET' && url.pathname === '/api/rooms') {
       const list = [...rooms.values()]
         .filter(r => !r.practice && [...r.conns.values()].some(s => s.size))
-        .map(r => { const h = player(r, r.host); return { code: r.code, host: h ? h.name : '', n: r.G.players.length, st: r.G.phase, ante: r.G.ante, mode: r.G.mode, tg: r.G.ttaeng, tie: r.G.tie, kind: r.G.kind || 'sutda', lim: r.G.limit, sb: r.G.sb }; })
+        .map(r => { const h = player(r, r.host); return { code: r.code, host: h ? h.name : '', n: r.G.players.length, w: watchersOf(r).length, st: r.G.phase, ante: r.G.ante, mode: r.G.mode, tg: r.G.ttaeng, tie: r.G.tie, kind: r.G.kind || 'sutda', lim: r.G.limit, sb: r.G.sb }; })
         .slice(0, 20);
       return json(res, 200, list);
     }

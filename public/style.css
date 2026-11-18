@@ -548,3 +548,20 @@ body:has(#entry:not(.hidden)){
   #center.hd .banner .big{font-size:15px}
 }
 @media (orientation:landscape) and (max-height:520px){ #me .mycards:has(.hw.pc){min-height:0} }
+
+/* ───────── 관전 ───────── */
+.tbl-btns{display:flex;gap:6px;flex:none}
+.chip-s.watch{background:rgba(255,240,210,.12);color:#f0d9a8;cursor:default}
+#log .chat.w b{color:var(--ink3)}
+#me .watchbox .myname{font-size:20px}
+#actions.watchacts{grid-template-columns:minmax(150px,1fr);min-width:0}
+@media (orientation:landscape) and (max-height:520px){
+  #actions.watchacts{grid-template-columns:minmax(120px,1fr);flex:0 0 140px}
+  #me .watchbox .mychips{white-space:normal;font-size:11px}
+}
+.seat .tags .tag{white-space:nowrap}
+@media (orientation:landscape) and (max-height:520px){
+  .seat .tags{gap:2px;right:2px}
+  .seat .tags .tag{font-size:8px;padding:0 3px;line-height:13px}
+  .seat .tags .tag.host{display:none} /* 좁은 화면: 방장 표시는 생략 (방장은 상단바에 버튼이 있음) */
+}

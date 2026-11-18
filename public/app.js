@@ -136,7 +136,10 @@ $('#btnCreate').onclick = () => create(false);
 $('#btnSolo').onclick = () => create(true);
 $('#btnJoin').onclick = () => { const c = $('#joinCode').value.trim().toLowerCase(); if (!/^[a-z0-9]{4}$/.test(c)) return toast('방 코드 4자리를 입력하세요'); joinTable(c); };
 $('#joinCode').addEventListener('keydown', e => { if (e.key === 'Enter') $('#btnJoin').click(); });
-$('#tables').addEventListener('click', e => { const c = e.target.closest('[data-join]'); if (c) joinTable(c.dataset.join); });
+$('#tables').addEventListener('click', e => {
+  const c = e.target.closest('[data-join]'); if (c) return joinTable(c.dataset.join);
+  const w = e.target.closest('[data-watch]'); if (w) joinTable(w.dataset.watch, true);
+});
 
 async function loadTables(){
   if (inGame) return;
@@ -145,9 +148,9 @@ async function loadTables(){
     const t = $('#tables');
     if (!list.length) { t.innerHTML = '<div class="muted">지금 열린 방이 없어요.</div>'; return; }
     t.innerHTML = list.map(r => `<div class="tbl-item"><div><b>${esc(r.host)}</b>의 방 <span class="code" style="font-size:12px">${esc(r.code.toUpperCase())}</span>
-      <div class="muted">${Number(r.n)||0}명 · ${r.st === 'bet' ? '게임 중' : '대기 중'}</div>
+      <div class="muted">${Number(r.n)||0}명${r.w ? ` · 관전 ${Number(r.w)}명` : ''} · ${r.st === 'bet' ? '게임 중' : '대기 중'}</div>
       <div class="muted">${ruleText({ kind: r.kind, ante: Number(r.ante) || 100, bb: Number(r.ante) || 100, lim: r.lim, mode: r.mode, tg: r.tg, tie: r.tie })}</div></div>
-      <button class="btn gold" data-join="${esc(r.code)}">입장</button></div>`).join('');
+      <div class="tbl-btns"><button class="btn" data-watch="${esc(r.code)}">관전</button><button class="btn gold" data-join="${esc(r.code)}">입장</button></div></div>`).join('');
   } catch(e){ $('#tables').innerHTML = '<div class="muted">서버에 연결할 수 없어요.</div>'; }
 }
 setInterval(loadTables, 4000);
@@ -158,9 +161,9 @@ function showInvite(){
   if (!c || inGame) { box.classList.add('hidden'); return false; }
   box.innerHTML = `<h3>초대받은 방 <span class="code">${esc(c.toUpperCase())}</span></h3>
     <div class="muted" style="margin-bottom:10px">${user ? '아래 버튼을 눌러 입장하세요.' : '로그인하면 바로 이 방으로 들어가요. 계정이 없으면 회원가입부터 해주세요.'}</div>
-    ${user ? '<button class="btn gold" id="btnInvite" style="width:100%">이 방으로 입장</button>' : ''}`;
+    ${user ? '<div class="row"><button class="btn" id="btnInviteWatch" style="flex:0 0 110px">관전만</button><button class="btn gold" id="btnInvite">이 방으로 입장</button></div>' : ''}`;
   box.classList.remove('hidden');
-  if (user) $('#btnInvite').onclick = () => joinTable(c);
+  if (user) { $('#btnInvite').onclick = () => joinTable(c); $('#btnInviteWatch').onclick = () => joinTable(c, true); }
   else pendingJoin = c;
   $('#joinCode').value = c;
   return true;
@@ -175,16 +178,16 @@ function showResume(roomCode){
 }
 
 // ───────── 방 입장 / 연결 ─────────
-async function joinTable(c){
+async function joinTable(c, watch){
   if (!user) { pendingJoin = c; return toast('먼저 로그인하세요'); }
   code = c.toLowerCase();
-  const r = await api({ t: 'join' });
+  const r = await api({ t: 'join', watch: !!watch });
   if (!r.ok) { code = null; return; }
   try { history.replaceState(null, '', '#' + code); } catch(e){ location.hash = code; }
   inGame = true; PS = null; chatLines = []; resetFx(); unread = 0; applyChat();
   $('#entry').classList.add('hidden'); $('#game').classList.remove('hidden');
   $('#hCode').textContent = code.toUpperCase();
-  if (!r.seated) toast('자리가 꽉 차서 관전으로 들어왔어요');
+  if (!r.seated) toast(watch ? '관전으로 들어왔어요. 빈자리가 있으면 [자리에 앉기]로 참가할 수 있어요' : '자리가 꽉 차서 관전으로 들어왔어요');
   openStream();
   render();
   setHdrH();
@@ -197,7 +200,7 @@ function openStream(){
     try { PS = JSON.parse(e.data); psAt = Date.now(); } catch(err){ return; }
     netState(true); render();
   });
-  es.addEventListener('ch', e => { try { const d = JSON.parse(e.data); chatLines.push({ nm: d.nm, x: d.x }); if (chatLines.length > 60) chatLines.shift(); renderLog(); if (!(user && d.nm === user.nick)) chatArrived(d.nm, d.x); } catch(err){} });
+  es.addEventListener('ch', e => { try { const d = JSON.parse(e.data); chatLines.push({ nm: d.nm, x: d.x, w: !!d.w }); if (chatLines.length > 60) chatLines.shift(); renderLog(); if (!(user && d.nm.replace(' (관전)', '') === user.nick)) chatArrived(d.nm, d.x); } catch(err){} });
   es.addEventListener('kick', () => { toast('방에서 내보내졌어요'); leaveGame(true); });
   es.addEventListener('chip', e => {
     let d; try { d = JSON.parse(e.data); } catch(err){ return; }
@@ -227,7 +230,14 @@ function leaveGame(silent){
   setTimeout(() => { refreshMe(); }, 300);
   renderEntry(); loadTables();
 }
-$('#btnLeave').onclick = () => confirmBox('방에서 나갈까요?', '진행 중인 판이 있으면 다이 처리돼요. 칩은 계정에 저장돼요.', '나가기', () => leaveGame(false));
+$('#btnLeave').onclick = () => {
+  const seated = PS && (PS.pl || []).some(p => p[0] === PS.you);
+  if (!seated || PS.practice) return confirmBox('방에서 나갈까요?', seated ? '진행 중인 판이 있으면 다이 처리돼요.' : '관전을 그만두고 나가요.', '나가기', () => leaveGame(false));
+  openModal(`<h2>자리에서 일어날까요?</h2><p>진행 중인 판이 있으면 다이 처리돼요. 칩은 계정에 저장돼요.<br><span class="muted">관전으로 바꾸면 방에 남아서 계속 보고 채팅할 수 있어요.</span></p>
+    <div class="row"><button class="btn" data-close>취소</button><button class="btn" id="lvWatch">관전으로 바꾸기</button><button class="btn red" id="lvGo">나가기</button></div>`);
+  $('#lvWatch').onclick = async () => { closeModal(); const r = await api({ t: 'stand' }); if (r.ok) toast('관전으로 바꿨어요. [자리에 앉기]로 다시 참가할 수 있어요'); };
+  $('#lvGo').onclick = () => { closeModal(); leaveGame(false); };
+};
 $('#btnCopy').onclick = async () => {
   const link = location.origin + location.pathname + '#' + code;
   try { await navigator.clipboard.writeText(link); toast('초대 링크를 복사했어요'); } catch(e){ toast(link); }
@@ -403,6 +413,10 @@ function render(){
   $('#btnCopy').classList.toggle('hidden', practice);
   $('#hCode').textContent = practice ? '봇 연습' : (code || '').toUpperCase();
   $('#hKind').textContent = s ? (s.kind === 'holdem' ? '홀덤' : '섯다') : '';
+  const wl = (s && s.watch) || [];
+  $('#hWatch').classList.toggle('hidden', !wl.length);
+  $('#hWatch').textContent = `👀 ${wl.length}`;
+  $('#hWatch').title = wl.length ? '관전 중: ' + wl.join(', ') : '';
   renderHostbar();
   if (!s) {
     $('#seats').innerHTML = ''; $('#bets').innerHTML = '';
@@ -548,7 +562,11 @@ function render(){
   const meEl = $('#me');
   if (!mp) {
     meEl.classList.remove('turn');
-    meEl.innerHTML = `<div class="info"><div class="myname">관전 중</div><div class="mychips">${players.length >= Sutda.MAX_PLAYERS ? '자리가 꽉 찼어요 (최대 6명).' : '자리에 앉는 중…'}</div></div>`;
+    const full = players.length >= Sutda.MAX_PLAYERS;
+    meEl.innerHTML = `<div class="info watchbox"><div class="myname">👀 관전 중</div>
+      <div class="mychips">${full ? '자리가 꽉 찼어요 (최대 6명). 자리가 나면 앉을 수 있어요' : '남의 패는 판이 끝나고 공개될 때만 보여요. 채팅은 할 수 있어요'}</div></div>
+      <div id="actions" class="watchacts"><button class="act raise" id="btnSit" ${full ? 'disabled' : ''}>자리에 앉기<small>${full ? '자리 없음' : (ph === 'bet' ? '다음 판부터 참가' : '바로 참가')}</small></button></div>`;
+    $('#btnSit').onclick = async () => { $('#btnSit').disabled = true; const r = await api({ t: 'join' }); if (r.ok && r.seated) toast('자리에 앉았어요'); else render(); };
   } else {
     const myTurn = !!(h && ph === 'bet' && h.ta === myId);
     meEl.classList.toggle('turn', myTurn);
@@ -723,7 +741,7 @@ function renderHostbar(){
 function renderLog(){
   if (!inGame) return;
   const sys = (PS && PS.log || []).map(l => `<div class="sys">${esc(l)}</div>`);
-  const chats = chatLines.slice(-30).map(c => `<div class="chat"><b>${esc(c.nm)}</b> ${esc(c.x)}</div>`);
+  const chats = chatLines.slice(-30).map(c => `<div class="chat${c.w ? ' w' : ''}"><b>${esc(c.nm)}</b> ${esc(c.x)}</div>`);
   const el = $('#log');
   const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
   el.innerHTML = sys.join('') + (chats.length ? '<div class="sys" style="margin-top:6px">— 채팅 —</div>' + chats.join('') : '');
