@@ -502,3 +502,49 @@ body:has(#entry:not(.hidden)){
   #center.hd .seal{display:none}   /* 좁은 화면: 이긴 족보는 좌석 밑에 이미 나옴 */
 }
 @media (orientation:landscape) and (max-height:520px){ #center.hd{top:33%} }
+/* ───────── 홀덤 카드 크기 (한 번 더 크게) ───────── */
+.board .hw.pc,.board .slot{width:74px;height:104px}
+.board{min-height:104px;gap:8px}
+.seat .hw.pc{width:46px;height:64px}
+.seat .cards:has(.hw.pc){height:64px}
+.hw.pc.lg{width:108px;height:152px}
+#me .mycards:has(.hw.pc){min-height:152px}
+@media (max-width:860px){
+  .board .hw.pc,.board .slot{width:52px;height:73px}
+  .seat .hw.pc{width:34px;height:48px}
+  .seat .cards:has(.hw.pc){height:48px}
+  .hw.pc.lg{width:84px;height:118px}
+  #me .mycards:has(.hw.pc){min-height:118px}
+}
+@media (orientation:landscape) and (max-height:520px){
+  /* 홀덤 방은 좌석 이름표를 좁혀서 가운데 카드 자리를 넓힘 */
+  #game.hd{--seatW:112}
+  #game.hd .seat{width:112px}
+  .board .hw.pc,.board .slot{width:53px;height:74px}
+  .board{min-height:74px;gap:4px}
+  #center.hd{width:56%;top:32%}
+  .seat .hw.pc{width:30px;height:42px}
+  .seat .cards:has(.hw.pc){height:42px}
+  .hw.pc.lg{width:51px;height:72px}
+  #me .mycards:has(.hw.pc){min-height:0}
+}
+/* 조정: PC는 다른 사람 패 원래 크기, 내 패는 화면 안에 들어오게 */
+.seat .hw.pc{width:42px;height:58px}
+.seat .cards:has(.hw.pc){height:58px}
+.hw.pc.lg{width:100px;height:140px}
+#me .mycards:has(.hw.pc){min-height:140px}
+@media (orientation:landscape) and (max-height:520px){
+  #game.hd{--seatW:128}
+  #game.hd .seat{width:128px}
+  .seat .hw.pc{width:27px;height:38px}
+  .seat .cards:has(.hw.pc){height:38px}
+  .hw.pc.lg{width:45px;height:64px}
+  /* 공용 카드는 크게, 살짝 겹쳐서 좌우 좌석 사이에 맞춤 (모서리 숫자는 보임) */
+  .board .hw.pc,.board .slot{width:53px;height:74px}
+  .board{gap:0}
+  .board > * + *{margin-left:-3px}
+  #center.hd{width:50%;top:35%}
+  #center.hd .banner{font-size:0}
+  #center.hd .banner .big{font-size:15px}
+}
+@media (orientation:landscape) and (max-height:520px){ #me .mycards:has(.hw.pc){min-height:0} }

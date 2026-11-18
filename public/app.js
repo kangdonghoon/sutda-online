@@ -382,7 +382,7 @@ const ACT_LABEL = { die: '다이', check: '체크', call: '콜', bbing: '삥', h
 function seatLayout(n){
   const wrap = $('#tableWrap'), W = wrap.clientWidth || 800;
   // 좌석 폭·세로 반지름은 CSS 변수로 (PC / 세로 폰 / 가로 폰마다 다름)
-  const cs = getComputedStyle(document.documentElement);
+  const cs = getComputedStyle($('#game')); // 홀덤 방은 #game.hd에서 좌석 폭을 따로 줄 수 있음
   const seatW = parseFloat(cs.getPropertyValue('--seatW')) || 132;
   const ry = parseFloat(cs.getPropertyValue('--seatRy')) || 33;
   const rx = Math.min(43, 50 - (seatW / 2 + 6) / W * 100);
@@ -431,6 +431,7 @@ function render(){
   const roleTags = id => HD
     ? (h ? `${s.btn === id ? '<span class="tag btn">D</span>' : ''}${h.sbId === id ? '<span class="tag blind">SB</span>' : ''}${h.bbId === id ? '<span class="tag blind">BB</span>' : ''}` : '')
     : (s.sun === id && h ? '<span class="tag sun">선</span>' : '');
+  $('#game').classList.toggle('hd', HD);
   const isHost = s.host === myId;
   const handKey = h ? h.no + ':' + h.dl : '';
   const skipAnim = !prevSnap; // 막 들어왔을 땐 연출 없이 현재 상태만
@@ -534,6 +535,7 @@ function render(){
     : '<div class="slot"></div>').join('')}</div>` : '';
   const potHTML = `<div class="pot" id="pot">${pot ? stackHTML(pot, 4) : ''}<div class="amt">${won(pot)}</div><small>${h ? `판돈 · ${h.no}판` : '판돈'}</small></div>`;
   $('#center').classList.toggle('hd', HD);
+  $('#game').classList.toggle('hd', HD);
   $('#center').innerHTML = HD
     ? `<div class="hdRow">${boardHTML}${potHTML}</div><div class="banner">${banner}</div>`   // 홀덤: 공용 카드와 판돈을 한 줄에 (카드는 판돈에서 날아감)
     : `<div class="potRow">
