@@ -94,6 +94,8 @@ $env:DATABASE_URL="postgresql://..."; $env:ADMIN_USERS="donghun"; node server.js
 - `public/cards/` 폴더를 지우면 `public/cards.js`에서 직접 그린 SVG 카드로 자동으로 돌아가요.
 - 다른 이미지로 바꾸려면 같은 파일 이름(`01-1.png` ~ `10-2.png`)으로 넣으면 돼요. `-1`은 광·열끗, `-2`는 띠·피예요. 세로 5:8 비율을 권장해요.
 
+- **트럼프 카드 (홀덤)**: "Public domain complete playing card deck.svg" (퍼블릭 도메인)의 9×6 시트에서 52장을 잘라 `public/pcards/As.webp`처럼 240×336 WebP로 저장했어요 (조커 제외, 합계 약 0.5MB). 파일 이름은 숫자(2~9, T, J, Q, K, A) + 무늬(s·h·d·c). 뒷면은 CSS로 그려요. 자세한 건 `public/pcards/LICENSE.txt`.
+
 ## 봇 연습
 **봇이랑 연습**으로 만든 방은 연습방이에요.
 - **연습 칩 10,000**으로 해요. 따거나 잃어도 계정 칩은 그대로예요.

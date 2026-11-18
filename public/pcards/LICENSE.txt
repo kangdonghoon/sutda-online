@@ -1,0 +1,6 @@
+트럼프 카드 그림 (public/pcards/*.webp)
+
+원본: "Public domain complete playing card deck.svg" (퍼블릭 도메인)
+- 9×6 시트에서 카드 52장을 한 장씩 잘라 240×336 WebP로 저장했어요. 조커 2장은 쓰지 않아요.
+- 파일 이름은 숫자 + 무늬: 2~9, T(10), J, Q, K, A + s(♠) h(♥) d(♦) c(♣). 예: As.webp, Td.webp
+- 카드 뒷면은 그림이 아니라 CSS로 그려요 (style.css의 .pcb).

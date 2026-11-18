@@ -334,9 +334,8 @@ function pcardHTML(c, o){
   const cls = 'hw pc' + (o.lg ? ' lg' : '') + (o.incoming ? ' incoming' : '') + (o.flip ? ' flip' : '') + (o.hi ? ' hi' : '') + (o.dim ? ' dim' : '');
   const attrs = (o.key ? ` data-ck="${o.key}"` : '') + (o.flip ? ` style="animation-delay:-${o.flipAgo || 0}ms"` : '');
   if (c == null) return `<div class="${cls}"${attrs}><div class="pcb"></div></div>`;
-  const r = Holdem.RANK_KO[Holdem.rankOf(c)], su = Holdem.SUITS[Holdem.suitOf(c)];
-  const red = Holdem.suitOf(c) === 1 || Holdem.suitOf(c) === 2, face = /^[JQK]$/.test(r);
-  return `<div class="${cls}" title="${Holdem.cardName(c)}"${attrs}><div class="pcf${red ? ' red' : ''}${face ? ' face' : ''}"><div class="crn"><b>${r}</b><i>${su}</i></div><div class="mid">${face ? r : su}</div><div class="crn br"><b>${r}</b><i>${su}</i></div></div></div>`;
+  // 카드 그림: public/pcards/As.webp 처럼 숫자+무늬 (퍼블릭 도메인 트럼프 그림을 잘라 쓴 것)
+  return `<div class="${cls}" title="${Holdem.cardName(c)}"${attrs}><img class="pcimg" src="/pcards/${Holdem.cardCode(c)}.webp" alt="${Holdem.cardName(c)}" draggable="false"></div>`;
 }
 function preflopName(cs){
   const [a, b] = cs.slice().sort((x, y) => Holdem.rankOf(y) - Holdem.rankOf(x));
@@ -488,7 +487,8 @@ function render(){
   }).join('') || `<div class="banner" style="position:absolute;left:50%;top:22%;transform:translateX(-50%);width:80%;text-align:center">아직 아무도 없어요.<br>[초대 링크 복사]로 친구를 부르세요.</div>`;
 
   // 베팅 칩 (자리마다 위치를 잡아둬야 칩이 날아갈 수 있다)
-  const betSpots = others.map((p, i) => ({ id: p.id, x: 50 + (pos[i].x - 50) * .62, y: 49 + (pos[i].y - 49) * .62 }));
+  // 홀덤은 가운데에 공용 카드가 있어서 위쪽 좌석의 베팅 칩을 좌석 쪽으로 더 붙인다
+  const betSpots = others.map((p, i) => { const k = HD && pos[i].y < 30 ? .84 : .62; return { id: p.id, x: 50 + (pos[i].x - 50) * k, y: 49 + (pos[i].y - 49) * k }; });
   if (myId) betSpots.push({ id: myId, x: 50, y: 82 });
   $('#bets').innerHTML = betSpots.map(b => {
     const amt = h && ph === 'bet' && h.bet ? (h.bet[b.id] || 0) : 0;
