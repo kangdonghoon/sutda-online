@@ -448,3 +448,20 @@ aside h4{margin:0;padding:12px 14px 6px;font-size:14px;color:var(--red2);font-fa
 }
 
 #game .gk{font-size:11px;padding:1px 7px;border-radius:99px;background:rgba(255,240,210,.14);color:#f0d9a8;margin-left:-6px;letter-spacing:.05em}
+
+/* ───────── 입장 화면: 초록 담요 라운지 (섯다·홀덤 공통) ───────── */
+html:has(#entry:not(.hidden)){background:#14301a}
+body:has(#entry:not(.hidden)){
+  background:
+    radial-gradient(ellipse at 50% 18%,rgba(120,190,120,.22),transparent 55%),
+    radial-gradient(ellipse at 50% 120%,rgba(0,0,0,.45),transparent 60%),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 .05 0 0 0 0 .2 0 0 0 0 .08 0 0 0 .22 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"),
+    linear-gradient(180deg,#2c5e33,#1a3d20 70%,#132f18);
+  background-attachment:fixed;
+}
+#entry h1{color:#fff3cf;text-shadow:0 4px 0 #7a1510,0 12px 26px rgba(0,0,0,.45)}
+#entry .sub{color:#f0dfb4;opacity:1}
+#entry .credit{color:rgba(255,243,207,.6)}
+#entry .card-box{box-shadow:0 2px 0 rgba(0,0,0,.25),0 14px 30px rgba(0,0,0,.35);border-color:rgba(0,0,0,.35)}
+#entry .fan .hw{filter:drop-shadow(0 4px 6px rgba(0,0,0,.5))}
+#entry .hero{margin-bottom:22px}
