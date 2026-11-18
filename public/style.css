@@ -376,3 +376,71 @@ aside h4{margin:0;padding:12px 14px 6px;font-size:14px;color:var(--red2);font-fa
   .credit{font-size:9px;margin:2px 0 0}
   .modal .box{max-height:92vh;padding:14px}
 }
+
+/* ───────── 홀덤: 트럼프 카드 ───────── */
+.hw.pc{width:42px;filter:drop-shadow(0 2px 2px rgba(0,0,0,.45))}
+.hw.pc.lg{width:98px}
+.pcf,.pcb{position:absolute;inset:0;border-radius:inherit;overflow:hidden;container-type:size}
+.pcf{background:linear-gradient(160deg,#fffefa,#f3eee2);border:1px solid rgba(0,0,0,.18);color:#1c1c22}
+.pcf.red{color:#c4232b}
+.pcf .crn{position:absolute;left:6%;top:4%;display:flex;flex-direction:column;align-items:center;line-height:.9;font-family:Georgia,'Times New Roman',serif;font-weight:700}
+.pcf .crn b{font-size:27cqh;letter-spacing:-.04em}
+.pcf .crn i{font-style:normal;font-size:20cqh;margin-top:1cqh}
+.pcf .crn.br{left:auto;top:auto;right:6%;bottom:4%;transform:rotate(180deg)}
+.pcf .mid{position:absolute;left:50%;top:54%;transform:translate(-50%,-50%);font-size:46cqh;line-height:1}
+.pcf.face .mid{font-family:Georgia,serif;font-weight:700;font-size:40cqh;padding:4cqh 9cqh;border-radius:6cqh;border:1px solid currentColor;background:rgba(0,0,0,.03)}
+.pcb{background:#1f3f72;border:2px solid #fbf6ea;box-shadow:inset 0 0 0 1px rgba(0,0,0,.25);
+  background-image:repeating-linear-gradient(45deg,rgba(255,255,255,.16) 0 3px,transparent 3px 7px),repeating-linear-gradient(-45deg,rgba(255,255,255,.16) 0 3px,transparent 3px 7px)}
+.hw.pc.hi{transform:translateY(-6px);filter:drop-shadow(0 0 6px #ffd54a) drop-shadow(0 2px 2px rgba(0,0,0,.4))}
+.hw.pc.dim{filter:brightness(.6) drop-shadow(0 2px 2px rgba(0,0,0,.4))}
+/* 공용 카드 5장 */
+.board{display:flex;gap:6px;justify-content:center;min-height:68px;align-items:center}
+.board .hw.pc{width:47px;height:68px}
+.board .slot{width:47px;height:68px;border-radius:5px;border:1.5px dashed rgba(255,243,207,.28)}
+.tag.btn{background:#f4f1e6;color:#222;border:1px solid #888;font-weight:800}
+.tag.blind{background:rgba(30,40,70,.75);color:#dfe8ff}
+/* 레이즈 금액 고르기 */
+#me{position:relative}
+#raisePop{position:absolute;right:12px;bottom:calc(100% + 8px);z-index:20;width:min(340px,calc(100vw - 24px));padding:12px 14px;border-radius:8px;
+  background:linear-gradient(180deg,#fffaf0,#f2e6cc);border:1px solid rgba(42,31,22,.35);box-shadow:0 10px 28px rgba(0,0,0,.4)}
+#raisePop .amt{font-family:var(--serif);font-size:28px;color:var(--red);text-align:center;line-height:1.1}
+#raisePop .amt small{display:block;font-size:12px;color:var(--ink2);font-family:inherit}
+#raisePop input[type=range]{width:100%;margin:8px 0 6px;accent-color:var(--red)}
+#raisePop .q{display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin-bottom:8px}
+#raisePop .q button{padding:5px 0;font-size:12px;border-radius:4px;border:1px solid rgba(42,31,22,.3);background:rgba(255,255,255,.7);font-weight:700}
+#raisePop .row{display:flex;gap:6px}
+#raisePop .row .btn{flex:1}
+#raisePop .step{display:flex;gap:6px;align-items:center}
+#raisePop .step button{width:34px;height:30px;border-radius:4px;border:1px solid rgba(42,31,22,.3);background:#fff;font-size:18px;font-weight:700;line-height:1}
+@media (max-width:860px){
+  .hw.pc.lg{width:78px}
+  .seat .hw.pc{width:31px}
+  .board .hw.pc,.board .slot{width:38px;height:55px}
+  .board{min-height:55px;gap:4px}
+}
+@media (orientation:landscape) and (max-height:520px){
+  .seat .hw.pc{width:27px}
+  .hw.pc.lg{width:45px}
+  .board .hw.pc,.board .slot{width:31px;height:45px}
+  .board{min-height:45px;gap:3px}
+  #raisePop{right:6px;padding:8px 10px;width:300px}
+  #raisePop .amt{font-size:20px}
+  #raisePop input[type=range]{margin:4px 0}
+  #raisePop .q{margin-bottom:5px}
+}
+
+.rk-ex{display:flex;gap:3px;margin-top:4px}
+.rk-ex .hw.pc{width:28px;height:40px}
+
+#center.hd{width:76%;top:53%}
+#center.hd .hdRow{display:flex;align-items:center;justify-content:center;gap:14px}
+#center.hd .pot{min-width:84px}
+#actions .act{white-space:nowrap}
+@media (max-width:860px){ #center.hd{width:90%} }
+@media (orientation:landscape) and (max-height:520px){
+  #center.hd{width:66%;top:56%}
+  #center.hd .hdRow{gap:8px}
+  #center.hd .pot{min-width:58px}
+  #actions .act{letter-spacing:-.04em}
+  .hw.pc.hi{transform:translateY(-3px)}
+}

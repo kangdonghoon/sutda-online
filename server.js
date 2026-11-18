@@ -5,6 +5,9 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const Sutda = require('./public/core.js');
+const Holdem = require('./public/holdem.js');
+// 방의 게임 종류에 맞는 규칙 엔진 (둘 다 같은 함수 이름을 가짐)
+const EN = G => G.kind === 'holdem' ? Holdem : Sutda;
 const { createStore, START_CHIPS } = require('./store.js');
 
 const PORT = Number(process.env.PORT) || 3000;
@@ -83,7 +86,9 @@ const PRACTICE_CHIPS = 10000; // 봇 연습방 전용 칩 (계정 칩과 무관)
 function roomRules(body) {
   const ante = Number(body && body.ante);
   return {
-    ante: ANTES.includes(ante) ? ante : 100,
+    kind: body && body.kind === 'holdem' ? 'holdem' : 'sutda',
+    lim: body && body.lim === 'pl' ? 'pl' : 'nl',   // 홀덤: 노리밋 / 팟리밋
+    ante: ANTES.includes(ante) ? ante : 100,         // 홀덤에서는 빅 블라인드
     mode: body && body.mode === 'two' ? 'two' : 'one',
     ttaeng: body && body.ttaeng === false ? 0 : 1,
     tie: body && body.tie === 'split' ? 'split' : 'replay',
@@ -93,13 +98,15 @@ function createRoom(hostId, rules, practice) {
   rules = rules || roomRules({});
   let code; do code = rid(4); while (rooms.has(code));
   const room = {
-    code, G: Sutda.createGame({ ante: rules.ante, startChips: START_CHIPS, rake: practice ? null : Object.assign({}, RAKE), mode: rules.mode, ttaeng: rules.ttaeng, tie: rules.tie }), host: hostId,
+    code, G: rules.kind === 'holdem'
+      ? Holdem.createGame({ bb: rules.ante, startChips: START_CHIPS, rake: practice ? null : Object.assign({}, RAKE), limit: rules.lim })
+      : Sutda.createGame({ ante: rules.ante, startChips: START_CHIPS, rake: practice ? null : Object.assign({}, RAKE), mode: rules.mode, ttaeng: rules.ttaeng, tie: rules.tie }), host: hostId,
     practice: !!practice, owner: hostId,   // 연습방: 연습 칩 사용, DB 저장·수수료 없음, 비공개
     autoNext: true, banned: new Set(), conns: new Map(), lastSeen: new Map(),
     lastActive: Date.now(), botKey: '', botDue: 0, showKey: '', showDue: 0, dirty: false, savedKey: '', leaving: new Set(), credits: new Map(),
     dealOpt: {},  // 관리자 딜 옵션: { 플레이어 id: 0~3 }
   };
-  room.G.deckHook = S => prepareDeck(room.dealOpt, S);
+  if (rules.kind !== 'holdem') room.G.deckHook = S => prepareDeck(room.dealOpt, S);
   rooms.set(code, room);
   return room;
 }
@@ -119,7 +126,7 @@ function addBot(room) {
   const names = ['고니', '평경장', '정마담', '고광렬', '아귀', '짝귀', '곽철용', '호구'];
   const used = new Set(G.players.map(p => p.name));
   const nm = names.map(n => '봇 ' + n).find(n => !used.has(n)) || '봇 ' + rid(3);
-  return Sutda.addPlayer(G, 'b' + rid(8), nm, true);
+  return EN(G).addPlayer(G, 'b' + rid(8), nm, true);
 }
 // 방에서 사람을 빼면서 칩을 저장. 진행 중인 판에 살아 있으면 false
 const { prepareDeck } = require('./dealer');
@@ -129,7 +136,7 @@ function removeFromRoom(room, id) {
   if (liveInHand(room, id)) return false;
   const uid = uidOf(id);
   if (uid && !room.practice) { store.setChips(uid, p.chips).catch(dbErr); if (userRoom.get(uid) === room.code) userRoom.delete(uid); }
-  Sutda.removePlayer(room.G, id);
+  EN(room.G).removePlayer(room.G, id);
   return true;
 }
 
@@ -162,7 +169,7 @@ function persistHand(room) {
   // 판 도중에 나간 사람은 판이 끝나면 자리에서 뺀다 (칩은 위에서 저장됨)
   for (const id of room.leaving) {
     const p = player(room, id), uid = uidOf(id);
-    if (p) Sutda.removePlayer(G, id);
+    if (p) EN(G).removePlayer(G, id);
     if (uid && userRoom.get(uid) === room.code) userRoom.delete(uid);
     if (room.host === id) { room.host = null; pickHost(room); }
   }
@@ -172,15 +179,15 @@ function persistHand(room) {
 // ───────── 상태 전송 (SSE) ─────────
 function viewFor(room, id) {
   const G = room.G, now = Date.now();
-  const s = Sutda.publicState(G, now);
+  const s = EN(G).publicState(G, now);
   s.code = room.code; s.host = room.host; s.auto = room.autoNext; s.turnMs = TURN_MS; s.you = id; s.practice = !!room.practice;
   if (s.h && s.h.rj) { s.h.rj.left = Math.max(0, room.showDue - now); s.h.rj.total = REJOIN_MS; }
   if (s.h && s.h.res) delete s.h.res.rake; // 수수료는 플레이어에게 보이지 않음 (관리자 페이지에서만)
   const rq = pendingByUid.get(uidOf(id)); s.req = rq ? { amount: rq.amount, kind: rq.kind, held: rq.held } : null;
-  s.canStart = Sutda.canStart(G);
+  s.canStart = EN(G).canStart(G);
   const h = G.hand;
   if (h && h.cards[id] && h.seats.includes(id)) s.me = { no: h.no, dl: h.deal, cards: h.cards[id] };
-  if (h && s.h && G.phase === 'bet' && h.toAct === id) s.h.lg = Sutda.legal(G, id);
+  if (h && s.h && G.phase === 'bet' && h.toAct === id) s.h.lg = EN(G).legal(G, id);
   return s;
 }
 function send(res, event, data) { try { res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); } catch (e) {} }
@@ -207,8 +214,8 @@ function dropConns(room, id, event) {
 // ───────── 게임 진행 루프 ─────────
 function next(room) {
   const G = room.G, now = Date.now();
-  if (G.phase === 'show' && G.hand && G.hand.result && G.hand.result.type === 'redeal') Sutda.redeal(G, rng, now);
-  else if (Sutda.canStart(G)) Sutda.startHand(G, rng, now);
+  if (G.phase === 'show' && G.hand && G.hand.result && G.hand.result.type === 'redeal') EN(G).redeal(G, rng, now);
+  else if (EN(G).canStart(G)) EN(G).startHand(G, rng, now);
   else { G.phase = 'lobby'; G.v++; }
   if (G.hand && G.phase === 'bet') G.hand.deadline = Math.max(G.hand.deadline, now + 1000);
 }
@@ -226,9 +233,13 @@ setInterval(() => {
       const p = player(room, h.toAct), k = h.toAct + ':' + G.v;
       if (p && p.bot) {
         if (room.botKey !== k) { room.botKey = k; room.botDue = now + 800 + rng() * 900; }
-        else if (now >= room.botDue) { room.botKey = ''; Sutda.act(G, p.id, Sutda.botDecide(G, p.id, rng), now); dirty = true; }
+        else if (now >= room.botDue) {
+          room.botKey = '';
+          const d = EN(G).botDecide(G, p.id, rng);
+          EN(G).act(G, p.id, typeof d === 'string' ? d : d.k, now, d && d.a); dirty = true;
+        }
       } else if (p && p.away && h.deadline - now > 6000) { h.deadline = now + 6000; dirty = true; }
-      else if (now > h.deadline) { Sutda.autoAct(G, now); dirty = true; }
+      else if (now > h.deadline) { EN(G).autoAct(G, now); dirty = true; }
     }
     if (G.phase === 'show' && h) {
       const redeal = h.result && h.result.type === 'redeal';
@@ -238,10 +249,10 @@ setInterval(() => {
         room.botRj = new Map();
         if (redeal && h.rejoin) {                       // 다이한 사람에게 참가 여부를 묻는 동안 기다림
           room.showDue = now + REJOIN_MS;
-          for (const id of Sutda.rejoinPending(G)) {
+          for (const id of EN(G).rejoinPending(G)) {
             const p = player(room, id);
             if (p && p.bot) room.botRj.set(id, now + 1000 + rng() * 2500);
-            else if (!p || p.away) Sutda.rejoinAnswer(G, id, false);
+            else if (!p || p.away) EN(G).rejoinAnswer(G, id, false);
           }
           dirty = true;
         }
@@ -251,11 +262,11 @@ setInterval(() => {
           if (now < due) continue;
           room.botRj.delete(id);
           const p = player(room, id), cost = h.rejoin.cost[id] || 0;
-          if (p) { Sutda.rejoinAnswer(G, id, rng() < (cost <= p.chips * 0.3 ? 0.6 : 0.2)); dirty = true; }
+          if (p) { EN(G).rejoinAnswer(G, id, rng() < (cost <= p.chips * 0.3 ? 0.6 : 0.2)); dirty = true; }
         }
-        if (!Sutda.rejoinPending(G).length && room.showDue - now > 1500) { room.showDue = now + 1500; dirty = true; }
+        if (!EN(G).rejoinPending(G).length && room.showDue - now > 1500) { room.showDue = now + 1500; dirty = true; }
       }
-      if (now >= room.showDue && (redeal || (room.autoNext && Sutda.canStart(G)))) { room.showKey = ''; next(room); dirty = true; }
+      if (now >= room.showDue && (redeal || (room.autoNext && EN(G).canStart(G)))) { room.showKey = ''; next(room); dirty = true; }
     }
     if (dirty) changed(room);
     const anyone = [...room.conns.values()].some(s => s.size);
@@ -289,10 +300,10 @@ async function seat(room, u) {
   const id = pid(u.id);
   let p = player(room, id);
   if (!p) {
-    if (room.practice) { p = Sutda.addPlayer(room.G, id, u.nick, false); if (p) p.chips = PRACTICE_CHIPS; }
+    if (room.practice) { p = EN(room.G).addPlayer(room.G, id, u.nick, false); if (p) p.chips = PRACTICE_CHIPS; }
     else {
       const fresh = await store.userById(u.id);
-      p = Sutda.addPlayer(room.G, id, u.nick, false);
+      p = EN(room.G).addPlayer(room.G, id, u.nick, false);
       if (p) p.chips = fresh ? fresh.chips : START_CHIPS;
     }
   } else { p.name = u.nick; p.away = false; room.leaving.delete(id); }
@@ -355,7 +366,9 @@ async function handle(body, ip) {
       const room = createRoom(myId, rules, !!body.solo);
       await seat(room, u);
       if (room.practice) room.G.log.push(`연습 모드 — 연습 칩 ${PRACTICE_CHIPS.toLocaleString()}으로 시작해요. 계정 칩은 그대로예요`);
-      room.G.log.push(`방 규칙: 판돈 ${rules.ante.toLocaleString()} · ${rules.mode === 'two' ? '두 장 받고 한 번 베팅' : '한 장씩 두 번 베팅'} · 땡값 ${rules.ttaeng ? '있음' : '없음'} · 동점 ${rules.tie === 'split' ? '나눠 갖기' : '재경기'}`);
+      room.G.log.push(rules.kind === 'holdem'
+        ? `방 규칙: 텍사스 홀덤 · 블라인드 ${room.G.sb.toLocaleString()}/${room.G.bb.toLocaleString()} · ${rules.lim === 'pl' ? '팟리밋' : '노리밋'}`
+        : `방 규칙: 판돈 ${rules.ante.toLocaleString()} · ${rules.mode === 'two' ? '두 장 받고 한 번 베팅' : '한 장씩 두 번 베팅'} · 땡값 ${rules.ttaeng ? '있음' : '없음'} · 동점 ${rules.tie === 'split' ? '나눠 갖기' : '재경기'}`);
       if (body.solo) { addBot(room); addBot(room); }
       log('room', room.code, 'by', u.username);
       return [200, { code: room.code }];
@@ -407,7 +420,7 @@ async function handle(body, ip) {
       return ok({ seated: !!p });
     }
     case 'rejoin':
-      if (!Sutda.rejoinAnswer(G, myId, !!body.yes)) return [409, { error: '지금은 정할 수 없어요' }];
+      if (!EN(G).rejoinAnswer(G, myId, !!body.yes)) return [409, { error: '지금은 정할 수 없어요' }];
       return ok();
     case 'practiceRefill': {
       const p = player(room, myId);
@@ -417,7 +430,7 @@ async function handle(body, ip) {
       return ok();
     }
     case 'act':
-      if (!Sutda.act(G, myId, String(body.k), now)) return [409, { error: '지금은 할 수 없어요' }];
+      if (!EN(G).act(G, myId, String(body.k), now, Number(body.a))) return [409, { error: '지금은 할 수 없어요' }];
       return ok();
     case 'chat': {
       const p = player(room, myId), x = clean(body.x, 80);
@@ -431,7 +444,7 @@ async function handle(body, ip) {
         const p = player(room, myId); if (p) p.away = true;
         room.leaving.add(myId);
         // 내 차례면 바로 다이
-        if (G.hand && G.hand.toAct === myId) Sutda.act(G, myId, 'die', now);
+        if (G.hand && G.hand.toAct === myId) EN(G).act(G, myId, 'die', now);
       }
       room.lastSeen.delete(myId);
       if (room.host === myId) { room.host = null; pickHost(room); }
@@ -444,7 +457,7 @@ async function handle(body, ip) {
     case 'start':
       if (G.phase === 'bet') return [409, { error: '게임 중이에요' }];
       if (G.phase === 'show' && G.hand && G.hand.result && G.hand.result.type === 'redeal') return [409, { error: '재경기 대기 중' }];
-      if (!Sutda.canStart(G)) return [409, { error: '2명 이상 필요해요' }];
+      if (!EN(G).canStart(G)) return [409, { error: '2명 이상 필요해요' }];
       room.showKey = ''; next(room); return ok();
     case 'bot':
       if (G.players.length >= Sutda.MAX_PLAYERS) return [409, { error: '자리가 꽉 찼어요' }];
@@ -613,7 +626,7 @@ async function admin(t, body, u) {
     }
     case 'admin.rooms':
       return [200, [...rooms.values()].map(r => ({
-        code: r.code, phase: r.G.phase, hands: r.G.handNo, practice: !!r.practice,
+        code: r.code, phase: r.G.phase, hands: r.G.handNo, practice: !!r.practice, kind: r.G.kind || 'sutda',
         players: r.G.players.map(p => ({ id: p.id, name: p.name, chips: p.chips, bot: p.bot, away: p.away, host: p.id === r.host, opt: r.dealOpt[p.id] || 0 })),
       }))];
     case 'admin.dealOpt': {
@@ -692,7 +705,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/api/rooms') {
       const list = [...rooms.values()]
         .filter(r => !r.practice && [...r.conns.values()].some(s => s.size))
-        .map(r => { const h = player(r, r.host); return { code: r.code, host: h ? h.name : '', n: r.G.players.length, st: r.G.phase, ante: r.G.ante, mode: r.G.mode, tg: r.G.ttaeng, tie: r.G.tie }; })
+        .map(r => { const h = player(r, r.host); return { code: r.code, host: h ? h.name : '', n: r.G.players.length, st: r.G.phase, ante: r.G.ante, mode: r.G.mode, tg: r.G.ttaeng, tie: r.G.tie, kind: r.G.kind || 'sutda', lim: r.G.limit, sb: r.G.sb }; })
         .slice(0, 20);
       return json(res, 200, list);
     }
