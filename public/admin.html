@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>섯다 관리자</title>
+<title>한판 관리자</title>
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
 <link href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
 <style>
 :root{--bg:#0b2d23;--panel:rgba(5,22,17,.6);--ink:#f3ead7;--dim:#a9b8ad;--gold:#e3b54a;--gold2:#f5d27a;--line:rgba(243,234,215,.14);--bad:#e2685f;--ok:#9be3b5}
@@ -53,7 +54,7 @@ details summary{cursor:pointer;margin:12px 0 6px}
 </style>
 </head>
 <body>
-<header><h1>섯다 관리자</h1><span class="muted" id="who"></span><span style="flex:1"></span><a href="/">게임으로</a></header>
+<header><h1>한판 관리자</h1><span class="muted" id="who"></span><span style="flex:1"></span><a href="/">게임으로</a></header>
 <main id="main"><p class="muted">불러오는 중…</p></main>
 <script>
 (() => {
@@ -149,7 +150,7 @@ async function loadReqs(force){
   try {
     const r = await api({ t: 'admin.requests' });
     const n = r.pending.length;
-    document.title = (n ? `(${n}) ` : '') + '섯다 관리자';
+    document.title = (n ? `(${n}) ` : '') + '한판 관리자';
     $('#reqCount').innerHTML = n ? `<span class="tag bad" style="font-size:13px">${n}건 대기</span>` : '';
     // 입력 중인 금액이 지워지지 않게, 목록이 바뀔 때만 다시 그림
     const sig = r.pending.map(q => q.id + ':' + q.kind + ':' + q.chips + ':' + q.held + ':' + q.inHand).join(',');

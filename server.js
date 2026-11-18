@@ -656,13 +656,18 @@ async function admin(t, body, u) {
 }
 
 // ───────── HTTP ─────────
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' };
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.webmanifest': 'application/manifest+json' };
 function serveStatic(req, res, urlPath) {
   const rel = urlPath === '/' ? '/index.html' : urlPath === '/admin' ? '/admin.html' : urlPath;
   const file = path.normalize(path.join(PUBLIC_DIR, rel));
   if (!file.startsWith(PUBLIC_DIR)) { res.writeHead(403); return res.end(); }
   fs.readFile(file, (err, data) => {
     if (err) { res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' }); return res.end('Not found'); }
+    if (rel === '/index.html') { // 링크 미리보기 이미지는 절대 주소여야 해서 지금 주소를 넣어 준다
+      const host = String(req.headers['x-forwarded-host'] || req.headers.host || '').replace(/[^a-z0-9.:-]/gi, '');
+      const proto = String(req.headers['x-forwarded-proto'] || 'http').split(',')[0].trim() === 'https' ? 'https' : 'http';
+      data = Buffer.from(data.toString('utf8').replace(/%ORIGIN%/g, `${proto}://${host}`));
+    }
     res.writeHead(200, { 'content-type': MIME[path.extname(file)] || 'application/octet-stream', 'cache-control': 'no-cache', 'x-content-type-options': 'nosniff' });
     res.end(data);
   });
@@ -736,7 +741,7 @@ store.init()
     try { const v = await store.getSetting('rake'); if (v) RAKE = cleanRake(JSON.parse(v)); } catch (e) { dbErr(e); }
     for (const q of await store.pendingRequests()) pendingByUid.set(q.userId, { id: q.id, amount: q.amount, kind: q.kind, held: q.held, createdAt: q.createdAt });
   })
-  .then(() => server.listen(PORT, HOST, () => log(`섯다 서버 실행 중: http://localhost:${PORT} (저장소: ${store.kind}, 관리자: ${[...ADMINS].join(', ') || '없음'}, 수수료: ${RAKE.rate}%)`)))
+  .then(() => server.listen(PORT, HOST, () => log(`한판 서버 실행 중: http://localhost:${PORT} (저장소: ${store.kind}, 관리자: ${[...ADMINS].join(', ') || '없음'}, 수수료: ${RAKE.rate}%)`)))
   .catch(e => { console.error('DB 연결 실패:', e.message); process.exit(1); });
 
 module.exports = { server, store }; // 테스트용

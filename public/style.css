@@ -44,10 +44,12 @@ a{color:var(--red)}
 #entry{max-width:540px;margin:0 auto;padding:40px 18px 48px}
 .hero{display:flex;align-items:center;gap:18px;margin-bottom:10px}
 #entry h1{font-family:var(--serif);font-size:84px;margin:0;line-height:.9;color:var(--red);text-shadow:2px 3px 0 var(--ink),0 10px 24px rgba(90,40,0,.35);letter-spacing:.04em}
-.fan{position:relative;width:120px;height:110px;flex:none}
-.fan .hw{position:absolute;bottom:0;left:30px;width:56px;height:90px;transform-origin:50% 120%}
-.fan .hw:nth-child(1){transform:rotate(-16deg) translateX(-14px)}
-.fan .hw:nth-child(2){transform:rotate(12deg) translateX(14px)}
+.fan{position:relative;width:150px;height:110px;flex:none}
+.fan .hw{position:absolute;bottom:0;left:44px;width:56px;height:90px;transform-origin:50% 120%}
+.fan .hw:nth-child(1){transform:rotate(-18deg) translateX(-26px)}
+.fan .hw:nth-child(2){transform:rotate(0deg) translateY(-6px);z-index:1}
+.fan .hw:nth-child(3){transform:rotate(18deg) translateX(26px)}
+.fan .hw.pc{width:64px}
 #entry .sub{color:var(--ink);opacity:.8;margin:6px 0 24px;font-size:15px}
 .card-box{border-radius:6px;padding:16px 16px 18px;margin-bottom:14px;position:relative}
 .card-box h3{margin:0 0 12px;font-size:17px;font-family:var(--serif);color:var(--red2);font-weight:400}
@@ -444,3 +446,5 @@ aside h4{margin:0;padding:12px 14px 6px;font-size:14px;color:var(--red2);font-fa
   #actions .act{letter-spacing:-.04em}
   .hw.pc.hi{transform:translateY(-3px)}
 }
+
+#game .gk{font-size:11px;padding:1px 7px;border-radius:99px;background:rgba(255,240,210,.14);color:#f0d9a8;margin-left:-6px;letter-spacing:.05em}

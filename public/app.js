@@ -345,7 +345,8 @@ function preflopName(cs){
   return `${ra}·${rb}${Holdem.suitOf(a) === Holdem.suitOf(b) ? ' 수티드' : ''}`;
 }
 let raiseUI = null; // 레이즈 금액 고르는 창 상태 {key, amt, min, max, k, ...}
-function heroFan(){ const f = $('#heroFan'); if (f) f.innerHTML = cardHTML(4) + cardHTML(14); }
+// 첫 화면 부채꼴: 3월 광 · 스페이드 A · 8월 광
+function heroFan(){ const f = $('#heroFan'); if (f) f.innerHTML = cardHTML(4) + pcardHTML(48) + cardHTML(14); }
 heroFan();
 
 function stackHTML(amount, maxCols){
@@ -400,7 +401,7 @@ function render(){
   $('#btnRebuy .t-l').textContent = rb[0]; $('#btnRebuy .t-s').textContent = rb[1];
   $('#btnCopy').classList.toggle('hidden', practice);
   $('#hCode').textContent = practice ? '봇 연습' : (code || '').toUpperCase();
-  $('#game .logo').textContent = s && s.kind === 'holdem' ? '홀덤' : '섯다';
+  $('#hKind').textContent = s ? (s.kind === 'holdem' ? '홀덤' : '섯다') : '';
   renderHostbar();
   if (!s) {
     $('#seats').innerHTML = ''; $('#bets').innerHTML = '';
