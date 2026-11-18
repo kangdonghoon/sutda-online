@@ -565,3 +565,58 @@ body:has(#entry:not(.hidden)){
   .seat .tags .tag{font-size:8px;padding:0 3px;line-height:13px}
   .seat .tags .tag.host{display:none} /* 좁은 화면: 방장 표시는 생략 (방장은 상단바에 버튼이 있음) */
 }
+
+/* ───────── 7포커 ───────── */
+.seat .cards.p7{gap:0}
+.seat .cards.p7 > .hw + .hw{margin-left:-24px}
+#me .mycards.p7{gap:0}
+#me .mycards.p7 > .hw + .hw{margin-left:-46px}
+#me .mycards.p7c{gap:8px}
+.hw.pc.dn::after{content:'숨김';position:absolute;left:50%;bottom:6%;transform:translateX(-50%);font-size:10px;line-height:15px;padding:0 6px;border-radius:8px;background:rgba(20,20,30,.72);color:#fff;white-space:nowrap}
+.hw.pc.pick{cursor:pointer;transition:transform .12s}
+.hw.pc.pick:hover{transform:translateY(-4px)}
+.hw.pc.x{filter:grayscale(1) brightness(.55);transform:translateY(6px)}
+.hw.pc.x::after,.hw.pc.o::after{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-weight:700;font-size:14px;padding:2px 8px;border-radius:10px;white-space:nowrap}
+.hw.pc.x::after{content:'버림';background:#3b2c22;color:#fff}
+.hw.pc.o{transform:translateY(-8px);filter:drop-shadow(0 0 6px #ffd54a)}
+.hw.pc.o::after{content:'공개';background:var(--red);color:#fff}
+#actions.choicebox{grid-template-columns:repeat(2,minmax(90px,1fr))}
+#actions.choicebox .rjq{grid-column:1/-1}
+@media (max-width:860px){
+  #me .mycards.p7 > .hw + .hw{margin-left:-38px}
+}
+@media (orientation:landscape) and (max-height:520px){
+  .seat .cards.p7 > .hw + .hw{margin-left:-16px}
+  #me .mycards.p7 .hw.pc.lg{width:40px;height:56px}
+  #me .mycards.p7 > .hw + .hw{margin-left:-21px}
+  .hw.pc.dn::after{font-size:7px;line-height:10px;padding:0 3px}
+  .hw.pc.x::after,.hw.pc.o::after{font-size:9px;padding:1px 4px}
+  #actions.choicebox{flex:0 1 260px}
+  #actions.choicebox .rjq{font-size:11px}
+}
+/* 7포커 조정 */
+.deck .hw.pc{position:absolute;width:44px;height:62px}
+#me .mycards.p7c{gap:0}
+#me .mycards.p7c > .hw + .hw{margin-left:-22px}
+#actions.choicebox{grid-template-columns:repeat(2,minmax(80px,1fr));min-width:0;max-width:260px}
+.hw.pc.dn::after{left:4px;transform:none;bottom:5%}
+@media (orientation:landscape) and (max-height:520px){
+  #me .mycards.p7c .hw.pc.lg{width:40px;height:56px}
+  #me .mycards.p7c > .hw + .hw{margin-left:-8px}
+  .hw.pc.dn::after{left:1px}
+}
+@media (orientation:landscape) and (max-height:520px){
+  /* 7포커: 카드가 많아서 좌석은 카드 위, 이름표 아래로 */
+  .seat.p7s{flex-direction:column;gap:1px}
+  .seat.p7s .cards{order:0;height:38px}
+  .seat.p7s .plate{padding:2px 6px 2px 3px}
+  #me.p7m .act[data-act="ranks"]{display:none}
+  #me.p7m #actions:not(.choicebox){grid-template-columns:repeat(5,minmax(40px,1fr))}
+}
+@media (orientation:landscape) and (max-height:520px){
+  #game.p7 #center{top:61%}
+}
+@media (orientation:landscape) and (max-height:520px){
+  #game.p7 #center{top:44%;transform:translateX(-50%);gap:0}
+  #game.p7 #center .seal{display:none}
+}

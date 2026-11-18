@@ -85,12 +85,13 @@
   const center = el => { const r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width, h: r.height, ok: r.width > 0 }; };
 
   // 덱 → 카드 자리. 끝나면 onDone (진짜 카드를 보이게)
-  FX.flyCard = (fromEl, toEl, delay, onDone) => {
+  // backHTML: 날아가는 카드 뒷면 (기본은 화투, 트럼프 게임은 트럼프 뒷면을 넘김)
+  FX.flyCard = (fromEl, toEl, delay, onDone, backHTML) => {
     const a = fromEl && center(fromEl), b = toEl && center(toEl);
     if (reduce || !a || !b || !a.ok || !b.ok) { setTimeout(onDone, delay || 0); return; }
     const el = document.createElement('div');
     el.className = 'fly-card';
-    el.innerHTML = window.HwatuArt.back();
+    el.innerHTML = backHTML || window.HwatuArt.back();
     Object.assign(el.style, { left: (b.x - b.w / 2) + 'px', top: (b.y - b.h / 2) + 'px', width: b.w + 'px', height: b.h + 'px', opacity: 0 });
     L().appendChild(el);
     const dx = a.x - b.x, dy = a.y - b.y, s = a.w / b.w || .6;

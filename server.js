@@ -6,8 +6,9 @@ const path = require('path');
 const crypto = require('crypto');
 const Sutda = require('./public/core.js');
 const Holdem = require('./public/holdem.js');
-// 방의 게임 종류에 맞는 규칙 엔진 (둘 다 같은 함수 이름을 가짐)
-const EN = G => G.kind === 'holdem' ? Holdem : Sutda;
+const Poker7 = require('./public/poker7.js');
+// 방의 게임 종류에 맞는 규칙 엔진 (모두 같은 함수 이름을 가짐)
+const EN = G => G.kind === 'holdem' ? Holdem : G.kind === 'poker7' ? Poker7 : Sutda;
 const { createStore, START_CHIPS } = require('./store.js');
 
 const PORT = Number(process.env.PORT) || 3000;
@@ -86,7 +87,7 @@ const PRACTICE_CHIPS = 10000; // 봇 연습방 전용 칩 (계정 칩과 무관)
 function roomRules(body) {
   const ante = Number(body && body.ante);
   return {
-    kind: body && body.kind === 'holdem' ? 'holdem' : 'sutda',
+    kind: body && (body.kind === 'holdem' || body.kind === 'poker7') ? body.kind : 'sutda',
     lim: body && body.lim === 'pl' ? 'pl' : 'nl',   // 홀덤: 노리밋 / 팟리밋
     ante: ANTES.includes(ante) ? ante : 100,         // 홀덤에서는 빅 블라인드
     mode: body && body.mode === 'two' ? 'two' : 'one',
@@ -98,7 +99,9 @@ function createRoom(hostId, rules, practice) {
   rules = rules || roomRules({});
   let code; do code = rid(4); while (rooms.has(code));
   const room = {
-    code, G: rules.kind === 'holdem'
+    code, G: rules.kind === 'poker7'
+      ? Poker7.createGame({ ante: rules.ante, startChips: START_CHIPS, rake: practice ? null : Object.assign({}, RAKE), ttaeng: rules.ttaeng })
+      : rules.kind === 'holdem'
       ? Holdem.createGame({ bb: rules.ante, startChips: START_CHIPS, rake: practice ? null : Object.assign({}, RAKE), limit: rules.lim, ttaeng: rules.ttaeng })
       : Sutda.createGame({ ante: rules.ante, startChips: START_CHIPS, rake: practice ? null : Object.assign({}, RAKE), mode: rules.mode, ttaeng: rules.ttaeng, tie: rules.tie }), host: hostId,
     practice: !!practice, owner: hostId,   // 연습방: 연습 칩 사용, DB 저장·수수료 없음, 비공개
@@ -107,7 +110,7 @@ function createRoom(hostId, rules, practice) {
     dealOpt: {},  // 관리자 딜 옵션: { 플레이어 id: 0~3 }
     watchers: new Map(), // 관전자: { 플레이어 id: 닉네임 } (자리 없이 화면만 받음, 남의 패는 안 보임)
   };
-  if (rules.kind !== 'holdem') room.G.deckHook = S => prepareDeck(room.dealOpt, S);
+  if (rules.kind === 'sutda') room.G.deckHook = S => prepareDeck(room.dealOpt, S);
   rooms.set(code, room);
   return room;
 }
@@ -189,7 +192,8 @@ function viewFor(room, id) {
   const rq = pendingByUid.get(uidOf(id)); s.req = rq ? { amount: rq.amount, kind: rq.kind, held: rq.held } : null;
   s.canStart = EN(G).canStart(G);
   const h = G.hand;
-  if (h && h.cards[id] && h.seats.includes(id)) s.me = { no: h.no, dl: h.deal, cards: h.cards[id] };
+  if (EN(G).myView) { const mv = EN(G).myView(G, id); if (mv) s.me = mv; }
+  else if (h && h.cards[id] && h.seats.includes(id)) s.me = { no: h.no, dl: h.deal, cards: h.cards[id] };
   if (h && s.h && G.phase === 'bet' && h.toAct === id) s.h.lg = EN(G).legal(G, id);
   s.watch = watchersOf(room).slice(0, 30);
   s.watching = !player(room, id);
@@ -235,6 +239,14 @@ setInterval(() => {
     }
     const oldHost = room.host; pickHost(room); if (room.host !== oldHost) dirty = true;
     for (const id of room.watchers.keys()) if (!connected(room, id) && now - (room.lastSeen.get(id) || 0) > 60000) { room.watchers.delete(id); dirty = true; }
+    if (G.phase === 'bet' && h && h.stage === 'choice' && EN(G).choicePending) {
+      for (const id of EN(G).choicePending(G)) {
+        const p = player(room, id);
+        if (p && p.bot && now - (h.choiceAt || (h.choiceAt = now)) > 1200 + (id.charCodeAt(id.length - 1) % 5) * 300) { EN(G).botChoose(G, id); dirty = true; }
+        else if (!p || p.away) { EN(G).autoChoose(G, now, id); dirty = true; }
+      }
+      if (G.hand === h && h.stage === 'choice' && now > h.deadline) { EN(G).autoChoose(G, now); dirty = true; }
+    }
     if (G.phase === 'bet' && h && h.toAct) {
       const p = player(room, h.toAct), k = h.toAct + ':' + G.v;
       if (p && p.bot) {
@@ -372,7 +384,9 @@ async function handle(body, ip) {
       const room = createRoom(myId, rules, !!body.solo);
       await seat(room, u);
       if (room.practice) room.G.log.push(`연습 모드 — 연습 칩 ${PRACTICE_CHIPS.toLocaleString()}으로 시작해요. 계정 칩은 그대로예요`);
-      room.G.log.push(rules.kind === 'holdem'
+      room.G.log.push(rules.kind === 'poker7'
+        ? `방 규칙: 7포커 · 판돈 ${rules.ante.toLocaleString()} · 땡값 ${rules.ttaeng ? '있음' : '없음'}`
+        : rules.kind === 'holdem'
         ? `방 규칙: 텍사스 홀덤 · 블라인드 ${room.G.sb.toLocaleString()}/${room.G.bb.toLocaleString()} · ${rules.lim === 'pl' ? '팟리밋' : '노리밋'} · 땡값 ${rules.ttaeng ? '있음' : '없음'}`
         : `방 규칙: 판돈 ${rules.ante.toLocaleString()} · ${rules.mode === 'two' ? '두 장 받고 한 번 베팅' : '한 장씩 두 번 베팅'} · 땡값 ${rules.ttaeng ? '있음' : '없음'} · 동점 ${rules.tie === 'split' ? '나눠 갖기' : '재경기'}`);
       if (body.solo) { addBot(room); addBot(room); }
@@ -441,13 +455,17 @@ async function handle(body, ip) {
       if (!p) return ok();
       if (!removeFromRoom(room, myId)) {
         room.leaving.add(myId);
-        if (G.hand && G.hand.toAct === myId) EN(G).act(G, myId, 'die', now);
+        if (EN(G).leaveHand) EN(G).leaveHand(G, myId, now);
+        else if (G.hand && G.hand.toAct === myId) EN(G).act(G, myId, 'die', now);
       }
       room.watchers.set(myId, u.nick);
       G.log.push(`${u.nick} 관전으로 바꿈`); G.v++;
       if (room.host === myId) { room.host = null; pickHost(room); }
       return ok();
     }
+    case 'choose': // 7포커 초이스: 버릴 카드 d, 보여줄 카드 o (0~3)
+      if (!EN(G).choose || !EN(G).choose(G, myId, body.d, body.o, now)) return [409, { error: '지금은 고를 수 없어요' }];
+      return ok();
     case 'rejoin':
       if (!EN(G).rejoinAnswer(G, myId, !!body.yes)) return [409, { error: '지금은 정할 수 없어요' }];
       return ok();
@@ -474,7 +492,8 @@ async function handle(body, ip) {
         const p = player(room, myId); if (p) p.away = true;
         room.leaving.add(myId);
         // 내 차례면 바로 다이
-        if (G.hand && G.hand.toAct === myId) EN(G).act(G, myId, 'die', now);
+        if (EN(G).leaveHand) EN(G).leaveHand(G, myId, now);
+        else if (G.hand && G.hand.toAct === myId) EN(G).act(G, myId, 'die', now);
       }
       room.lastSeen.delete(myId);
       if (room.host === myId) { room.host = null; pickHost(room); }
