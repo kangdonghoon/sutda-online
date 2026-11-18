@@ -109,7 +109,7 @@ function create(solo, kind){
     <div class="opt"><div class="olbl">판돈</div><div class="seg">${ANTES.map(a => pill('rAnte', a, won(a), last.ante === a)).join('')}</div></div>
     <div class="opt"><div class="olbl">진행 방식</div><div class="seg">${pill('rMode', 'one', '한 장씩 · 2번 베팅', last.mode !== 'two')}${pill('rMode', 'two', '두 장 받고 · 1번 베팅', last.mode === 'two')}</div></div>
     <div class="opt"><div class="olbl">땡값</div><div class="seg">${pill('rTg', '1', '있음', last.ttaeng)}${pill('rTg', '0', '없음', !last.ttaeng)}</div>
-      <div class="muted" style="margin-top:6px">이긴 사람이 건 금액 × 38광땡 2배 · 13·18광땡 1배 · 장땡~1땡 0.5배 (끝까지 남은 사람만 냄)</div></div>
+      <div class="muted" style="margin-top:6px">장땡 판돈 100% · 13·18광땡 150% · 38광땡 200% (끝까지 남은 사람만 냄)</div></div>
     <div class="opt"><div class="olbl">패가 같을 때</div><div class="seg">${pill('rTie', 'replay', '동점자끼리 재경기', last.tie !== 'split')}${pill('rTie', 'split', '나눠 갖기', last.tie === 'split')}</div>
       <div class="muted" style="margin-top:6px">재경기는 판돈 그대로 동점인 사람끼리 다시 겨뤄요 (최대 3번)</div></div>`;
   openModal(`<h2>${solo ? '봇이랑 연습' : '방 만들기'}</h2>
@@ -864,7 +864,7 @@ function showRanks(){
     ['한 장씩 · 2번 베팅', '한 장 받고 베팅, 한 장 더 받고 베팅 (기본)'],
     ['두 장 받고 · 1번 베팅', '두 장을 다 받고 한 번만 베팅'],
     ['동점 재경기', '패를 열었을 때 가장 높은 패가 같으면, 판돈 그대로 동점인 사람끼리만 새로 받아 다시 겨룸 (최대 3번, 그 뒤엔 나눠 가짐). 방 만들 때 나눠 갖기로 정할 수도 있음'],
-    ['땡값', '광땡·땡으로 혼자 이기면 끝까지 남은 다른 사람(다이 제외)이 1인당 따로 냄: 이긴 사람이 이 판에 건 금액 × 38광땡 2배, 13·18광땡 1배, 장땡~1땡 0.5배. 땡잡이·암행어사에 잡히면 없음. 딴 돈과 땡값을 합쳐 내 보유 칩을 넘을 수 없음. 내가 올인했는데 더 많이 건 사람이 졌으면 없음. 칩이 모자라면 있는 만큼만 (한게임 맞포커 방식)'],
+    ['땡값', '장땡·광땡으로 이기면 끝까지 남은 다른 사람(다이 제외)이 1인당 따로 냄. 장땡 판돈 100%, 13·18광땡 150%, 38광땡 200%. 1~9땡은 없음. 땡잡이·암행어사에 잡히면 없음. 칩이 모자라면 있는 만큼만'],
   ];
   const A = [['삥', '첫 베팅을 판돈만큼'], ['하프', '콜하고 판 전체의 절반만큼 더'], ['따당', '앞 사람 베팅의 두 배로'], ['콜 / 체크', '맞추기 / 그냥 넘기기'], ['다이', '포기']];
   openModal(`<h2>족보</h2><table class="rank-t">${R.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join('')}</table>

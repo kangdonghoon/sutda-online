@@ -117,11 +117,12 @@
   }
 
   // 수수료 계산. h.rk = 판 시작 때 고정한 설정 {rate(%), cap, min, folds}
-  // 땡값 배수 (한게임 맞포커 LA섯다 기준): 38광땡 2배, 13·18광땡 1배, 장땡~1땡 0.5배
-  function ttaengMult(rank) {
-    if (rank === 1000) return 2;
-    if (rank === 900) return 1;
-    if (rank > 800 && rank <= 810) return 0.5;
+  // 땡값 (1인당, 기본 판돈 기준): 장땡 100%, 13·18광땡 150%, 38광땡 200%, 1~9땡 없음
+  function ttaengAmount(rank, ante, on) {
+    if (!on) return 0;
+    if (rank === 1000) return ante * 2;
+    if (rank === 900) return Math.floor(ante * 1.5);
+    if (rank === 810) return ante;
     return 0;
   }
   // 받아준 사람이 없는 초과 베팅 (가장 많이 건 한 사람의 차액)
@@ -158,30 +159,6 @@
     };
   }
   function P(S, id) { return S.players.find(p => p.id === id); }
-  // 땡값 (한게임 맞포커 방식): 이긴 사람이 이 판에 건 금액 × 배수를, 끝까지 남은(다이·폴드 안 한) 패자가 1인당 낸다.
-  // - 딴 돈(판돈에서 받은 것 - 자기가 건 것)과 땡값을 합쳐 판 시작 때 보유 칩을 넘을 수 없다
-  // - 이긴 사람이 올인인데 그보다 많이 건 사람이 졌으면 땡값 없음
-  // - 패자 칩이 모자라면 있는 만큼만
-  function collectTtaeng(S, h, w, ids, mult, payMap) {
-    if (!(mult > 0)) return null;
-    const myBet = h.contrib[w] || 0;
-    if (h.allin[w] && ids.some(id => id !== w && (h.contrib[id] || 0) > myBet)) return null;
-    const each = Math.floor(myBet * mult);
-    if (each <= 0) return null;
-    const start = h.start && h.start[w] != null ? h.start[w] : Infinity;
-    const cap = Math.max(0, start - Math.max(0, (payMap[w] || 0) - myBet));
-    const from = {}; let total = 0;
-    for (const id of ids) {
-      if (id === w) continue;
-      const p = P(S, id); if (!p) continue;
-      const a = Math.min(each, p.chips, cap - total); if (a <= 0) continue;
-      p.chips -= a; from[id] = a; total += a;
-    }
-    if (total <= 0) return null;
-    P(S, w).chips += total;
-    return { to: w, each, mult, from, total };
-  }
-
   function log(S, msg) { S.log.push(msg); if (S.log.length > 30) S.log.shift(); }
   function bump(S) { S.v++; }
 
@@ -228,7 +205,6 @@
       mode: S.mode === 'two' ? 'two' : 'one', tg: S.ttaeng || 0,
     };
     seats.forEach(id => { h.contrib[id] = 0; h.bet[id] = 0; });
-    h.start = Object.fromEntries(seats.map(id => [id, P(S, id).chips])); // 땡값 상한용: 판 시작 때 칩
     S.phase = 'bet';
     log(S, `── ${h.no}판 시작 (판돈 ${S.ante}) ──`);
     for (const id of seats) pay(S, id, S.ante, true);
@@ -389,11 +365,23 @@
     const wn = mainWinners.map(id => `${P(S, id).name}(${ev[id]})`).join(', ');
     log(S, `${wn} 승리${pw.catchBy ? ' — ' + pw.catchBy + '!' : ''}`);
     Object.entries(payMap).forEach(([id, a]) => { if (!mainWinners.includes(id)) log(S, `${P(S, id).name} 사이드팟 +${a.toLocaleString()}`); });
-    // 땡값: 광땡·땡으로 이기면 끝까지 남은 사람이 낸다 (잡힌 경우·공동 승리는 제외)
+    // 땡값: 장땡·광땡으로 이기면 끝까지 남은(다이하지 않은) 다른 사람이 낸다 (잡힌 경우·공동 승리는 제외)
     if (h.tg > 0 && mainWinners.length === 1 && !pw.catchBy) {
-      const w = mainWinners[0];
-      const tg = collectTtaeng(S, h, w, ids, ttaengMult(evalHand(h.cards[w]).rank), payMap);
-      if (tg) { h.result.tg = tg; log(S, `땡값! ${P(S, w).name} +${tg.total.toLocaleString()} (건 금액의 ${tg.mult}배, 각자 ${tg.each.toLocaleString()})`); }
+      const w = mainWinners[0], each = ttaengAmount(evalHand(h.cards[w]).rank, S.ante, h.tg);
+      if (each > 0) {
+        const from = {}; let total = 0;
+        for (const id of ids) {          // ids = 다이하지 않은 사람
+          if (id === w) continue;
+          const p = P(S, id); if (!p) continue;
+          const a = Math.min(each, p.chips); if (a <= 0) continue;
+          p.chips -= a; from[id] = a; total += a;
+        }
+        if (total > 0) {
+          P(S, w).chips += total;
+          h.result.tg = { to: w, each, from, total };
+          log(S, `땡값! ${P(S, w).name} +${total.toLocaleString()} (각자 ${each.toLocaleString()})`);
+        }
+      }
     }
     S.sun = mainWinners[0];
     S.phase = 'show';
@@ -512,7 +500,7 @@
   }
 
   const api = {
-    MONTH_NAMES, MAX_PLAYERS, card, evalHand, pickWinners, checkRedeal, settle, rakeFor, ttaengMult, shuffle,
+    MONTH_NAMES, MAX_PLAYERS, card, evalHand, pickWinners, checkRedeal, settle, rakeFor, ttaengAmount, shuffle,
     createGame, addPlayer, removePlayer, canStart, startHand, legal, act, autoAct, redeal,
     publicState, botDecide, ACT_NAMES, rejoinAnswer, rejoinPending, strength,
   };
