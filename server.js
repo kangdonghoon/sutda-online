@@ -99,7 +99,7 @@ function createRoom(hostId, rules, practice) {
   let code; do code = rid(4); while (rooms.has(code));
   const room = {
     code, G: rules.kind === 'holdem'
-      ? Holdem.createGame({ bb: rules.ante, startChips: START_CHIPS, rake: practice ? null : Object.assign({}, RAKE), limit: rules.lim })
+      ? Holdem.createGame({ bb: rules.ante, startChips: START_CHIPS, rake: practice ? null : Object.assign({}, RAKE), limit: rules.lim, ttaeng: rules.ttaeng })
       : Sutda.createGame({ ante: rules.ante, startChips: START_CHIPS, rake: practice ? null : Object.assign({}, RAKE), mode: rules.mode, ttaeng: rules.ttaeng, tie: rules.tie }), host: hostId,
     practice: !!practice, owner: hostId,   // 연습방: 연습 칩 사용, DB 저장·수수료 없음, 비공개
     autoNext: true, banned: new Set(), conns: new Map(), lastSeen: new Map(),
@@ -367,7 +367,7 @@ async function handle(body, ip) {
       await seat(room, u);
       if (room.practice) room.G.log.push(`연습 모드 — 연습 칩 ${PRACTICE_CHIPS.toLocaleString()}으로 시작해요. 계정 칩은 그대로예요`);
       room.G.log.push(rules.kind === 'holdem'
-        ? `방 규칙: 텍사스 홀덤 · 블라인드 ${room.G.sb.toLocaleString()}/${room.G.bb.toLocaleString()} · ${rules.lim === 'pl' ? '팟리밋' : '노리밋'}`
+        ? `방 규칙: 텍사스 홀덤 · 블라인드 ${room.G.sb.toLocaleString()}/${room.G.bb.toLocaleString()} · ${rules.lim === 'pl' ? '팟리밋' : '노리밋'} · 땡값 ${rules.ttaeng ? '있음' : '없음'}`
         : `방 규칙: 판돈 ${rules.ante.toLocaleString()} · ${rules.mode === 'two' ? '두 장 받고 한 번 베팅' : '한 장씩 두 번 베팅'} · 땡값 ${rules.ttaeng ? '있음' : '없음'} · 동점 ${rules.tie === 'split' ? '나눠 갖기' : '재경기'}`);
       if (body.solo) { addBot(room); addBot(room); }
       log('room', room.code, 'by', u.username);

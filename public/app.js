@@ -93,21 +93,23 @@ function renderEntry(){
 const ANTES = [100, 500, 1000, 5000];
 const blindText = bb => `${won(Math.max(1, Math.floor(bb / 2)))}/${won(bb)}`;
 const ruleText = r => r.kind === 'holdem'
-  ? `홀덤 · 블라인드 ${blindText(r.bb || r.ante)} · ${r.lim === 'pl' ? '팟리밋' : '노리밋'}`
+  ? `홀덤 · 블라인드 ${blindText(r.bb || r.ante)} · ${r.lim === 'pl' ? '팟리밋' : '노리밋'} · 땡값 ${r.tg ? '있음' : '없음'}`
   : `섯다 · 판돈 ${won(r.ante)} · ${r.mode === 'two' ? '두 장 받고 한 번 베팅' : '한 장씩 두 번 베팅'} · 땡값 ${r.tg ? '있음' : '없음'} · 동점 ${r.tie === 'split' ? '나눠 갖기' : '재경기'}`;
 function create(solo, kind){
   if (!user) return toast('먼저 로그인하세요');
-  const last = Object.assign({ kind: 'sutda', ante: 100, mode: 'one', ttaeng: true, tie: 'replay', bb: 100, lim: 'nl' }, store.get('sutda-rules') || {});
+  const last = Object.assign({ kind: 'sutda', ante: 100, mode: 'one', ttaeng: true, tie: 'replay', bb: 100, lim: 'nl', hTg: true }, store.get('sutda-rules') || {});
   kind = kind || last.kind || 'sutda';
   const pill = (name, val, label, on) => `<label class="pill"><input type="radio" name="${name}" value="${val}" ${on ? 'checked' : ''}><span>${label}</span></label>`;
   const opts = kind === 'holdem' ? `
     <div class="opt"><div class="olbl">블라인드 (스몰/빅)</div><div class="seg">${ANTES.map(a => pill('rBB', a, blindText(a), last.bb === a)).join('')}</div></div>
     <div class="opt"><div class="olbl">베팅 방식</div><div class="seg">${pill('rLim', 'nl', '노리밋', last.lim !== 'pl')}${pill('rLim', 'pl', '팟리밋', last.lim === 'pl')}</div>
-      <div class="muted" style="margin-top:6px">노리밋: 언제든 가진 칩까지 올릴 수 있어요 · 팟리밋: 한 번에 판돈 크기까지만</div></div>` : `
+      <div class="muted" style="margin-top:6px">노리밋: 언제든 가진 칩까지 올릴 수 있어요 · 팟리밋: 한 번에 판돈 크기까지만</div></div>
+    <div class="opt"><div class="olbl">땡값</div><div class="seg">${pill('rTg', '1', '있음', last.hTg)}${pill('rTg', '0', '없음', !last.hTg)}</div>
+      <div class="muted" style="margin-top:6px">이긴 사람이 건 금액 × 로티플 3배 · 스티플(백티플) 2배 · 포카드 1배 (끝까지 남은 사람만 냄)</div></div>` : `
     <div class="opt"><div class="olbl">판돈</div><div class="seg">${ANTES.map(a => pill('rAnte', a, won(a), last.ante === a)).join('')}</div></div>
     <div class="opt"><div class="olbl">진행 방식</div><div class="seg">${pill('rMode', 'one', '한 장씩 · 2번 베팅', last.mode !== 'two')}${pill('rMode', 'two', '두 장 받고 · 1번 베팅', last.mode === 'two')}</div></div>
     <div class="opt"><div class="olbl">땡값</div><div class="seg">${pill('rTg', '1', '있음', last.ttaeng)}${pill('rTg', '0', '없음', !last.ttaeng)}</div>
-      <div class="muted" style="margin-top:6px">장땡 판돈 100% · 13·18광땡 150% · 38광땡 200% (끝까지 남은 사람만 냄)</div></div>
+      <div class="muted" style="margin-top:6px">이긴 사람이 건 금액 × 38광땡 2배 · 13·18광땡 1배 · 장땡~1땡 0.5배 (끝까지 남은 사람만 냄)</div></div>
     <div class="opt"><div class="olbl">패가 같을 때</div><div class="seg">${pill('rTie', 'replay', '동점자끼리 재경기', last.tie !== 'split')}${pill('rTie', 'split', '나눠 갖기', last.tie === 'split')}</div>
       <div class="muted" style="margin-top:6px">재경기는 판돈 그대로 동점인 사람끼리 다시 겨뤄요 (최대 3번)</div></div>`;
   openModal(`<h2>${solo ? '봇이랑 연습' : '방 만들기'}</h2>
@@ -121,7 +123,7 @@ function create(solo, kind){
   $('#rOk').onclick = async () => {
     const val = n => document.querySelector(`input[name=${n}]:checked`).value;
     let rules;
-    if (kind === 'holdem') { rules = { kind, ante: Number(val('rBB')), lim: val('rLim') }; Object.assign(last, { kind, bb: rules.ante, lim: rules.lim }); }
+    if (kind === 'holdem') { rules = { kind, ante: Number(val('rBB')), lim: val('rLim'), ttaeng: val('rTg') === '1' }; Object.assign(last, { kind, bb: rules.ante, lim: rules.lim, hTg: rules.ttaeng }); }
     else { rules = { kind, ante: Number(val('rAnte')), mode: val('rMode'), ttaeng: val('rTg') === '1', tie: val('rTie') }; Object.assign(last, rules); }
     store.set('sutda-rules', last);
     $('#rOk').disabled = true;
@@ -500,7 +502,7 @@ function render(){
   if (ph === 'lobby' || !h) {
     const n = players.filter(p => p.chips > 0 && !p.away).length;
     const md = HD ? `텍사스 홀덤 · ${s.lim === 'pl' ? '팟리밋' : '노리밋'}` : s.mode === 'two' ? '두 장 받고 한 번 베팅' : '한 장씩 두 번 베팅';
-    const tgt = !HD && s.tg ? ' · 땡값 있음' : '';
+    const tgt = s.tg ? ' · 땡값 있음' : '';
     banner = `${practice ? '<div style="margin-bottom:4px"><span class="seal" style="font-size:15px;animation:none">연습 칩</span></div>' : ''}<span class="big">${n >= 2 ? '시작 대기' : '사람 모으는 중'}</span>${n}명 · ${HD ? `블라인드 ${blindText(s.bb)}` : `판돈 ${won(s.ante)}`}<br>${md}${tgt}<br>${isHost ? (n >= 2 ? '위의 [게임 시작]을 누르세요' : '2명 이상 필요해요. 봇을 넣어도 돼요') : '방장이 시작하면 패가 돌아가요'}`;
   } else if (ph === 'bet') {
     const tn = byId[h.ta];
@@ -862,7 +864,7 @@ function showRanks(){
     ['한 장씩 · 2번 베팅', '한 장 받고 베팅, 한 장 더 받고 베팅 (기본)'],
     ['두 장 받고 · 1번 베팅', '두 장을 다 받고 한 번만 베팅'],
     ['동점 재경기', '패를 열었을 때 가장 높은 패가 같으면, 판돈 그대로 동점인 사람끼리만 새로 받아 다시 겨룸 (최대 3번, 그 뒤엔 나눠 가짐). 방 만들 때 나눠 갖기로 정할 수도 있음'],
-    ['땡값', '장땡·광땡으로 이기면 끝까지 남은 다른 사람(다이 제외)이 1인당 따로 냄. 장땡 판돈 100%, 13·18광땡 150%, 38광땡 200%. 1~9땡은 없음. 땡잡이·암행어사에 잡히면 없음. 칩이 모자라면 있는 만큼만'],
+    ['땡값', '광땡·땡으로 혼자 이기면 끝까지 남은 다른 사람(다이 제외)이 1인당 따로 냄: 이긴 사람이 이 판에 건 금액 × 38광땡 2배, 13·18광땡 1배, 장땡~1땡 0.5배. 땡잡이·암행어사에 잡히면 없음. 딴 돈과 땡값을 합쳐 내 보유 칩을 넘을 수 없음. 내가 올인했는데 더 많이 건 사람이 졌으면 없음. 칩이 모자라면 있는 만큼만 (한게임 맞포커 방식)'],
   ];
   const A = [['삥', '첫 베팅을 판돈만큼'], ['하프', '콜하고 판 전체의 절반만큼 더'], ['따당', '앞 사람 베팅의 두 배로'], ['콜 / 체크', '맞추기 / 그냥 넘기기'], ['다이', '포기']];
   openModal(`<h2>족보</h2><table class="rank-t">${R.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join('')}</table>
@@ -886,6 +888,7 @@ function showHoldemRanks(){
     ['승부', '내 패 2장과 공용 카드 5장 중 가장 좋은 5장으로 겨뤄요. 같으면 나눠 가져요'],
     ['블라인드', '딜러(D) 왼쪽 두 사람이 스몰(SB)·빅(BB) 블라인드를 먼저 내요. 딜러는 판마다 한 칸씩 돌아요'],
     ['노리밋 / 팟리밋', '노리밋은 가진 칩까지, 팟리밋은 한 번에 판돈 크기까지만 올릴 수 있어요'],
+    ['땡값', '포카드 이상으로 혼자 이기면 끝까지 남은 사람(폴드 제외)이 1인당 따로 내요: 이긴 사람이 건 금액 × 로티플 3배, 스티플·백티플 2배, 포카드 1배. 딴 돈과 땡값을 합쳐 내 보유 칩을 넘을 수 없고, 내가 올인했는데 더 많이 건 사람이 졌으면 없어요 (방 만들 때 켜고 끔)'],
   ];
   openModal(`<h2>홀덤 족보 <span class="muted" style="font-size:13px">위가 높아요</span></h2><table class="rank-t">${R.map(r => `<tr><td>${r[0]}</td><td>${r[1]}${ex(r[2])}</td></tr>`).join('')}</table>
     <h2 style="margin-top:18px">베팅</h2><table class="rank-t">${A.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join('')}</table>

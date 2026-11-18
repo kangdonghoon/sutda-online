@@ -50,7 +50,7 @@ assert.strictEqual(H.best(cs('As Ad Kc Kh 3s')).five.length, 5);
 function seeded(seed) { let x = seed >>> 0; return () => { x ^= x << 13; x >>>= 0; x ^= x >>> 17; x ^= x << 5; x >>>= 0; return x / 4294967296; }; }
 function sim(limit, n, hands, seed, rake) {
   const rng = seeded(seed);
-  const G = H.createGame({ bb: 100, startChips: 5000, limit, rake });
+  const G = H.createGame({ bb: 100, startChips: 5000, limit, rake, ttaeng: n % 2 === 0 ? 1 : 0 });
   for (let i = 0; i < n; i++) H.addPlayer(G, 'p' + i, '봇' + i, true);
   const total0 = G.players.reduce((a, p) => a + p.chips, 0);
   let played = 0, raked = 0, showdowns = 0, runouts = 0, now = 0;
@@ -144,5 +144,40 @@ for (const [limit, n, k] of [['nl', 2, 2000], ['nl', 6, 600], ['pl', 3, 1000], [
   H.act(G, bb, 'call', 0);
   const L = H.legal(G, btn);
   assert(!L.raise && 'call' in L, '덜 올린 올인 뒤에는 콜·폴드만');
+}
+// ── 땡값 (한게임 방식): 로티플 3배, 백티플·스티플 2배, 포카드 1배
+assert.strictEqual(H.ttaengMult(sc('Ts Js Qs Ks As 2d 3c')), 3);
+assert.strictEqual(H.ttaengMult(sc('As 2s 3s 4s 5s Kd Qc')), 2, '백티플');
+assert.strictEqual(H.ttaengMult(sc('5h 6h 7h 8h 9h 2d 2c')), 2, '스티플');
+assert.strictEqual(H.ttaengMult(sc('9s 9h 9d 9c Kd 2c 3h')), 1, '포카드');
+assert.strictEqual(H.ttaengMult(sc('Qs Qh Qd 4c 4s 2d 9h')), 0, '풀하우스는 없음');
+// 판 하나를 짜서 돌려 보기: board = 공용 5장, 덱은 뒤에서부터 나가고 스트리트마다 한 장 버림
+function rigged(hands, board, opts) {
+  const G = H.createGame(Object.assign({ bb: 100, startChips: 10000, ttaeng: 1 }, opts || {}));
+  Object.keys(hands).forEach(id => H.addPlayer(G, id, id));
+  H.startHand(G, Math.random, 0);
+  const h = G.hand; const b = cs(board);
+  Object.keys(hands).forEach(id => { h.cards[id] = cs(hands[id]); });
+  h.deck = [b[4], 0, b[3], 0, b[2], b[1], b[0], 0];
+  return G;
+}
+{
+  const G = rigged({ x: 'As Ks', y: '7h 7d' }, 'Qs Js Ts 2d 3c');
+  while (G.phase === 'bet') { const L = H.legal(G, G.hand.toAct); H.act(G, G.hand.toAct, 'check' in L ? 'check' : 'call', 0); }
+  const r = G.hand.result;
+  assert.deepStrictEqual(r.winners, ['x']);
+  assert.deepStrictEqual(r.tg, { to: 'x', each: 300, mult: 3, from: { y: 300 }, total: 300 }, '로티플 3배 (건 금액 100)');
+  assert.strictEqual(G.players.find(p => p.id === 'y').chips, 10000 - 100 - 300);
+}
+{ // 땡값 끈 방
+  const G = rigged({ x: 'As Ks', y: '7h 7d' }, 'Qs Js Ts 2d 3c', { ttaeng: 0 });
+  while (G.phase === 'bet') { const L = H.legal(G, G.hand.toAct); H.act(G, G.hand.toAct, 'check' in L ? 'check' : 'call', 0); }
+  assert.strictEqual(G.hand.result.tg, undefined);
+}
+{ // 폴드한 사람은 안 냄, 포카드 1배
+  const G = rigged({ x: '9s 9h', y: '7h 7d', z: '2c 3d' }, '9d 9c Kd 4h 5s');
+  while (G.phase === 'bet') { const id = G.hand.toAct, L = H.legal(G, id); H.act(G, id, id === 'z' ? 'fold' : ('check' in L ? 'check' : 'call'), 0); }
+  const r = G.hand.result;
+  assert.deepStrictEqual(r.winners, ['x']); assert.deepStrictEqual(Object.keys(r.tg.from), ['y']); assert.strictEqual(r.tg.mult, 1);
 }
 console.log('holdem ok');

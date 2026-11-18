@@ -150,9 +150,41 @@
       players: [], phase: 'lobby', hand: null, button: null, log: [], handNo: 0,
       rake: (opts && opts.rake) || null, rakeTotal: 0,
       limit: opts && opts.limit === 'pl' ? 'pl' : 'nl',
+      ttaeng: opts && opts.ttaeng ? 1 : 0,   // 땡값 켬(1) / 끔(0)
     };
   }
   function P(S, id) { return S.players.find(p => p.id === id); }
+  // 땡값 (한게임 맞포커 방식): 이긴 사람이 이 판에 건 금액 × 배수를, 끝까지 남은(다이·폴드 안 한) 패자가 1인당 낸다.
+  // - 딴 돈(판돈에서 받은 것 - 자기가 건 것)과 땡값을 합쳐 판 시작 때 보유 칩을 넘을 수 없다
+  // - 이긴 사람이 올인인데 그보다 많이 건 사람이 졌으면 땡값 없음
+  // - 패자 칩이 모자라면 있는 만큼만
+  function collectTtaeng(S, h, w, ids, mult, payMap) {
+    if (!(mult > 0)) return null;
+    const myBet = h.contrib[w] || 0;
+    if (h.allin[w] && ids.some(id => id !== w && (h.contrib[id] || 0) > myBet)) return null;
+    const each = Math.floor(myBet * mult);
+    if (each <= 0) return null;
+    const start = h.start && h.start[w] != null ? h.start[w] : Infinity;
+    const cap = Math.max(0, start - Math.max(0, (payMap[w] || 0) - myBet));
+    const from = {}; let total = 0;
+    for (const id of ids) {
+      if (id === w) continue;
+      const p = P(S, id); if (!p) continue;
+      const a = Math.min(each, p.chips, cap - total); if (a <= 0) continue;
+      p.chips -= a; from[id] = a; total += a;
+    }
+    if (total <= 0) return null;
+    P(S, w).chips += total;
+    return { to: w, each, mult, from, total };
+  }
+  // 땡값 배수 (한게임 7포커·홀덤 기준): 로티플 3배, 백티플·스티플 2배, 포카드 1배
+  function ttaengMult(score) {
+    const cat = catOf(score), top = Math.floor(score / 28561) % 13; // 13^4: 첫 비교 숫자
+    if (cat === 8) return top === 12 ? 3 : 2;
+    if (cat === 7) return 1;
+    return 0;
+  }
+
   function log(S, msg) { S.log.push(msg); if (S.log.length > 30) S.log.shift(); }
   const bump = S => { S.v++; };
   const won = n => n.toLocaleString();
@@ -208,9 +240,10 @@
       no: S.handNo, deal: 1, seats, cards: {}, board: [], deck: shuffle(rng), street: 0,
       folded: {}, allin: {}, bet: {}, contrib: {}, pot: 0, cur: 0, minRaise: S.bb, toAct: null,
       acted: {}, noRaise: {}, deadline: 0, result: null, lastAct: {}, rk: S.rake ? Object.assign({}, S.rake) : null,
-      sbId: seats[n === 2 ? 0 : 1], bbId: seats[n === 2 ? 1 : 2 % n], runout: false,
+      sbId: seats[n === 2 ? 0 : 1], bbId: seats[n === 2 ? 1 : 2 % n], runout: false, tg: S.ttaeng || 0,
     };
     seats.forEach(id => { h.contrib[id] = 0; h.bet[id] = 0; });
+    h.start = Object.fromEntries(seats.map(id => [id, P(S, id).chips])); // 땡값 상한용: 판 시작 때 칩
     S.phase = 'bet';
     log(S, `── ${h.no}판 시작 (블라인드 ${won(S.sb)}/${won(S.bb)}) ──`);
     const sbPaid = pay(S, h.sbId, S.sb), bbPaid = pay(S, h.bbId, S.bb);
@@ -368,13 +401,19 @@
     h.result = { type: 'show', winners: mainWinners, pay: payMap, ev, five, rake, reveal: true, pots };
     log(S, `${mainWinners.map(id => `${P(S, id).name}(${ev[id]})`).join(', ')} 승리`);
     Object.entries(payMap).forEach(([id, a]) => { if (!mainWinners.includes(id)) log(S, `${P(S, id).name} 사이드팟 +${won(a)}`); });
+    // 땡값: 포카드 이상으로 혼자 이기면 끝까지 남은 사람이 낸다
+    if (h.tg > 0 && mainWinners.length === 1) {
+      const w = mainWinners[0];
+      const tg = collectTtaeng(S, h, w, ids, ttaengMult(score[w]), payMap);
+      if (tg) { h.result.tg = tg; log(S, `땡값! ${P(S, w).name} +${won(tg.total)} (건 금액의 ${tg.mult}배, 각자 ${won(tg.each)})`); }
+    }
     S.phase = 'show';
   }
 
   function publicState(S, now) {
     const h = S.hand;
     const out = {
-      kind: 'holdem', v: S.v, ph: S.phase, ante: S.bb, sb: S.sb, bb: S.bb, lim: S.limit, btn: S.button, sc: S.startChips,
+      kind: 'holdem', v: S.v, ph: S.phase, ante: S.bb, sb: S.sb, bb: S.bb, lim: S.limit, tg: S.ttaeng || 0, btn: S.button, sc: S.startChips,
       pl: S.players.map(p => [p.id, p.name, p.chips, (p.bot ? 1 : 0) | (p.away ? 2 : 0)]),
       log: S.log.slice(-8), ev: S.ev || null,
     };
@@ -462,7 +501,7 @@
   const redeal = () => false, rejoinAnswer = () => false, rejoinPending = () => [];
 
   const api = {
-    MAX_PLAYERS, RANK_KO, SUITS, rankOf, suitOf, cardName, cardCode, eval5, best, handName, catOf, CAT, shuffle, settle, rakeFor,
+    MAX_PLAYERS, RANK_KO, SUITS, rankOf, suitOf, cardName, cardCode, eval5, best, handName, catOf, CAT, shuffle, settle, rakeFor, ttaengMult,
     createGame, addPlayer, removePlayer, canStart, startHand, legal, act, autoAct, redeal, rejoinAnswer, rejoinPending,
     publicState, botDecide, ACT_NAMES, preflopStrength, equity,
   };
