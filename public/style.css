@@ -620,3 +620,12 @@ body:has(#entry:not(.hidden)){
   #game.p7 #center{top:44%;transform:translateX(-50%);gap:0}
   #game.p7 #center .seal{display:none}
 }
+/* 7포커: 상대 패 크게 */
+.seat.p7s .hw.pc{width:52px;height:73px}
+.seat.p7s .cards:has(.hw.pc){height:73px}
+.seat.p7s .cards.p7 > .hw + .hw{margin-left:-32px}
+@media (orientation:landscape) and (max-height:520px){
+  .seat.p7s .hw.pc{width:34px;height:48px}
+  .seat.p7s .cards,.seat.p7s .cards:has(.hw.pc){height:48px}
+  .seat.p7s .cards.p7 > .hw + .hw{margin-left:-20px}
+}
