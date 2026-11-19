@@ -629,3 +629,14 @@ body:has(#entry:not(.hidden)){
   .seat.p7s .cards,.seat.p7s .cards:has(.hw.pc){height:48px}
   .seat.p7s .cards.p7 > .hw + .hw{margin-left:-20px}
 }
+/* 7포커: 상대 패 한 번 더 크게 */
+.seat.p7s .hw.pc{width:60px;height:84px}
+.seat.p7s .cards:has(.hw.pc){height:84px}
+.seat.p7s .cards.p7 > .hw + .hw{margin-left:-36px}
+@media (orientation:landscape) and (max-height:520px){
+  .seat.p7s .hw.pc{width:40px;height:56px}
+  .seat.p7s .cards,.seat.p7s .cards:has(.hw.pc){height:56px}
+  .seat.p7s .cards.p7 > .hw + .hw{margin-left:-24px}
+}
+#game.p7{--seatW:210}   /* 카드 7장 폭만큼 좌석을 안쪽으로 */
+@media (orientation:landscape) and (max-height:520px){ #game.p7{--seatW:140} }
