@@ -213,7 +213,7 @@ async function loadRooms(){
   try {
     const list = await api({ t: 'admin.rooms' });
     $('#rooms').innerHTML = list.length ? list.map(r => `<div class="room"><div><span class="code">${esc(r.code.toUpperCase())}</span>
-        <span class="muted"> · ${r.phase === 'bet' ? '게임 중' : '대기'} · ${r.hands}판</span>${r.practice ? '<span class="tag">봇 연습</span>' : ''}<span class="tag${r.kind !== 'sutda' ? ' gold' : ''}">${r.kind === 'holdem' ? '홀덤' : r.kind === 'poker7' ? '7포커' : '섯다'}</span>
+        <span class="muted"> · ${r.phase === 'bet' ? '게임 중' : '대기'} · ${r.hands}판</span>${r.practice ? '<span class="tag">봇 연습</span>' : ''}<span class="tag${r.kind !== 'sutda' ? ' gold' : ''}">${r.kind === 'holdem' ? '홀덤' : r.kind === 'poker7' ? '7포커' : r.kind === 'badugi' ? '바둑이' : '섯다'}</span>
         <div style="margin-top:4px">${r.players.map(p => `<span class="pl">${esc(p.name)}${p.host ? '<span class="tag gold">방장</span>' : ''}${p.bot ? '<span class="tag">봇</span>' : ''}${p.away ? '<span class="tag">자리비움</span>' : ''} <span class="muted">${won(p.chips)}</span>
           ${r.kind !== 'sutda' ? '' : `<select class="dopt${p.opt ? ' on' : ''}" title="딜 옵션" data-room="${esc(r.code)}" data-pid="${esc(p.id)}">${DEAL_LV.map((t, i) => `<option value="${i}" ${i === p.opt ? 'selected' : ''}>${t}</option>`).join('')}</select>`}</span>`).join('')}</div></div>
         <button class="btn sm red" data-close="${esc(r.code)}">방 닫기</button></div>`).join('') : '열린 방이 없어요';

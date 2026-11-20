@@ -1,7 +1,7 @@
 {
-  "name": "한판 · 섯다와 홀덤",
+  "name": "한판 · 섯다 · 홀덤 · 포커 · 바둑이",
   "short_name": "한판",
-  "description": "친구들과 링크 하나로 같이 하는 섯다와 텍사스 홀덤",
+  "description": "친구들과 링크 하나로 같이 하는 섯다 · 텍사스 홀덤 · 7포커 · 로우바둑이",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#1a3d20",

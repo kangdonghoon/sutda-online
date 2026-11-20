@@ -640,3 +640,26 @@ body:has(#entry:not(.hidden)){
 }
 #game.p7{--seatW:210}   /* 카드 7장 폭만큼 좌석을 안쪽으로 */
 @media (orientation:landscape) and (max-height:520px){ #game.p7{--seatW:140} }
+/* ───────── 로우바둑이 ───────── */
+.hw.pc.sw{transform:translateY(-12px);filter:drop-shadow(0 0 6px #6fc3ff) drop-shadow(0 2px 2px rgba(0,0,0,.4))}
+.hw.pc.sw::after{content:'교환';position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-weight:700;font-size:14px;padding:2px 8px;border-radius:10px;white-space:nowrap;background:#1f5f99;color:#fff}
+#me .mycards.bdc{gap:8px}
+#actions.drawbox{grid-template-columns:repeat(2,minmax(80px,1fr))}
+#actions.drawbox .act[data-draw-go]{min-width:0}
+@media (orientation:landscape) and (max-height:520px){
+  .hw.pc.sw{transform:translateY(-6px)}
+  .hw.pc.sw::after{font-size:9px;padding:1px 4px}
+  #me .mycards.bdc{gap:3px}
+}
+/* 바둑이: 4장이라 덜 겹치게 (쇼다운 때 숫자가 잘 보이게) */
+#game.bd{--seatW:170}
+.seat.bds .cards.p7 > .hw + .hw{margin-left:-26px}
+#game.bd #me .myhand{font-size:26px;white-space:nowrap}
+@media (orientation:landscape) and (max-height:520px){
+  #game.bd{--seatW:128}
+  .seat.bds .cards.p7 > .hw + .hw{margin-left:-14px}
+  #me .mycards.bdc .hw.pc.lg{width:40px;height:56px}
+  #game.bd #me .myhand{font-size:15px}
+  #game.bd #center{top:44%;transform:translateX(-50%);gap:0}
+  #game.bd #center .seal{display:none}
+}

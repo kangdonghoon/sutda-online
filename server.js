@@ -7,8 +7,9 @@ const crypto = require('crypto');
 const Sutda = require('./public/core.js');
 const Holdem = require('./public/holdem.js');
 const Poker7 = require('./public/poker7.js');
+const Badugi = require('./public/badugi.js');
 // 방의 게임 종류에 맞는 규칙 엔진 (모두 같은 함수 이름을 가짐)
-const EN = G => G.kind === 'holdem' ? Holdem : G.kind === 'poker7' ? Poker7 : Sutda;
+const EN = G => G.kind === 'holdem' ? Holdem : G.kind === 'poker7' ? Poker7 : G.kind === 'badugi' ? Badugi : Sutda;
 const { createStore, START_CHIPS } = require('./store.js');
 
 const PORT = Number(process.env.PORT) || 3000;
@@ -87,7 +88,7 @@ const PRACTICE_CHIPS = 10000; // 봇 연습방 전용 칩 (계정 칩과 무관)
 function roomRules(body) {
   const ante = Number(body && body.ante);
   return {
-    kind: body && (body.kind === 'holdem' || body.kind === 'poker7') ? body.kind : 'sutda',
+    kind: body && ['holdem', 'poker7', 'badugi'].includes(body.kind) ? body.kind : 'sutda',
     lim: body && body.lim === 'pl' ? 'pl' : 'nl',   // 홀덤: 노리밋 / 팟리밋
     ante: ANTES.includes(ante) ? ante : 100,         // 홀덤에서는 빅 블라인드
     mode: body && body.mode === 'two' ? 'two' : 'one',
@@ -99,8 +100,8 @@ function createRoom(hostId, rules, practice) {
   rules = rules || roomRules({});
   let code; do code = rid(4); while (rooms.has(code));
   const room = {
-    code, G: rules.kind === 'poker7'
-      ? Poker7.createGame({ ante: rules.ante, startChips: START_CHIPS, rake: practice ? null : Object.assign({}, RAKE), ttaeng: rules.ttaeng })
+    code, G: rules.kind === 'poker7' || rules.kind === 'badugi'
+      ? (rules.kind === 'badugi' ? Badugi : Poker7).createGame({ ante: rules.ante, startChips: START_CHIPS, rake: practice ? null : Object.assign({}, RAKE), ttaeng: rules.ttaeng })
       : rules.kind === 'holdem'
       ? Holdem.createGame({ bb: rules.ante, startChips: START_CHIPS, rake: practice ? null : Object.assign({}, RAKE), limit: rules.lim, ttaeng: rules.ttaeng })
       : Sutda.createGame({ ante: rules.ante, startChips: START_CHIPS, rake: practice ? null : Object.assign({}, RAKE), mode: rules.mode, ttaeng: rules.ttaeng, tie: rules.tie }), host: hostId,
@@ -239,13 +240,13 @@ setInterval(() => {
     }
     const oldHost = room.host; pickHost(room); if (room.host !== oldHost) dirty = true;
     for (const id of room.watchers.keys()) if (!connected(room, id) && now - (room.lastSeen.get(id) || 0) > 60000) { room.watchers.delete(id); dirty = true; }
-    if (G.phase === 'bet' && h && h.stage === 'choice' && EN(G).choicePending) {
+    if (G.phase === 'bet' && h && (h.stage === 'choice' || h.stage === 'draw') && EN(G).choicePending) { // 7포커 초이스 · 바둑이 교환
       for (const id of EN(G).choicePending(G)) {
         const p = player(room, id);
         if (p && p.bot && now - (h.choiceAt || (h.choiceAt = now)) > 1200 + (id.charCodeAt(id.length - 1) % 5) * 300) { EN(G).botChoose(G, id); dirty = true; }
         else if (!p || p.away) { EN(G).autoChoose(G, now, id); dirty = true; }
       }
-      if (G.hand === h && h.stage === 'choice' && now > h.deadline) { EN(G).autoChoose(G, now); dirty = true; }
+      if (G.hand === h && (h.stage === 'choice' || h.stage === 'draw') && now > h.deadline) { EN(G).autoChoose(G, now); dirty = true; }
     }
     if (G.phase === 'bet' && h && h.toAct) {
       const p = player(room, h.toAct), k = h.toAct + ':' + G.v;
@@ -384,8 +385,8 @@ async function handle(body, ip) {
       const room = createRoom(myId, rules, !!body.solo);
       await seat(room, u);
       if (room.practice) room.G.log.push(`연습 모드 — 연습 칩 ${PRACTICE_CHIPS.toLocaleString()}으로 시작해요. 계정 칩은 그대로예요`);
-      room.G.log.push(rules.kind === 'poker7'
-        ? `방 규칙: 7포커 · 판돈 ${rules.ante.toLocaleString()} · 땡값 ${rules.ttaeng ? '있음' : '없음'}`
+      room.G.log.push(rules.kind === 'poker7' || rules.kind === 'badugi'
+        ? `방 규칙: ${rules.kind === 'badugi' ? '로우바둑이' : '7포커'} · 판돈 ${rules.ante.toLocaleString()} · 땡값 ${rules.ttaeng ? '있음' : '없음'}`
         : rules.kind === 'holdem'
         ? `방 규칙: 텍사스 홀덤 · 블라인드 ${room.G.sb.toLocaleString()}/${room.G.bb.toLocaleString()} · ${rules.lim === 'pl' ? '팟리밋' : '노리밋'} · 땡값 ${rules.ttaeng ? '있음' : '없음'}`
         : `방 규칙: 판돈 ${rules.ante.toLocaleString()} · ${rules.mode === 'two' ? '두 장 받고 한 번 베팅' : '한 장씩 두 번 베팅'} · 땡값 ${rules.ttaeng ? '있음' : '없음'} · 동점 ${rules.tie === 'split' ? '나눠 갖기' : '재경기'}`);
@@ -466,6 +467,9 @@ async function handle(body, ip) {
     case 'choose': // 7포커 초이스: 버릴 카드 d, 보여줄 카드 o (0~3)
       if (!EN(G).choose || !EN(G).choose(G, myId, body.d, body.o, now)) return [409, { error: '지금은 고를 수 없어요' }];
       return ok();
+    case 'draw': // 바둑이 교환: 바꿀 카드 번호들 ix (0~3, 비우면 패스)
+      if (!EN(G).draw || !EN(G).draw(G, myId, Array.isArray(body.ix) ? body.ix.slice(0, 4) : null, now)) return [409, { error: '지금은 바꿀 수 없어요' }];
+      return ok();
     case 'rejoin':
       if (!EN(G).rejoinAnswer(G, myId, !!body.yes)) return [409, { error: '지금은 정할 수 없어요' }];
       return ok();
@@ -509,7 +513,7 @@ async function handle(body, ip) {
       if (!EN(G).canStart(G)) return [409, { error: '2명 이상 필요해요' }];
       room.showKey = ''; next(room); return ok();
     case 'bot':
-      if (G.players.length >= Sutda.MAX_PLAYERS) return [409, { error: '자리가 꽉 찼어요' }];
+      if (G.players.length >= (EN(G).MAX_PLAYERS || Sutda.MAX_PLAYERS)) return [409, { error: '자리가 꽉 찼어요' }];
       addBot(room); return ok();
     case 'kick': {
       const target = player(room, String(body.target));
